@@ -9,6 +9,7 @@ A module for importing, analysing, and plotting SHeM spot profile data.
 """
 
 import numpy as np
+from numpy import pi
 import scipy.io
 import matplotlib.pyplot as plt
 from matplotlib import cm # Colour palettes
@@ -16,6 +17,14 @@ import matplotlib.gridspec as gridspec
 import os
 from scipy import interpolate as interp
 
+
+def morse_V(z, x, y, params=(8.03, 1.35, 1.08, 0.102, 4)):
+    """Calculates a corrugated Morse potential of the form used by Celli et 
+    al 1985., x,y,z in Angstroms."""
+    D0, alpha, alpha1, h, a = params
+    Q = h*(np.cos(2*pi*x/a) + np.cos(2*pi*y/a))
+    v = D0*(np.exp(-2*alpha*(z - Q)) - 2*np.exp(-alpha1*z))
+    return(v)
 
 def twoD_Gaussian(xy, amplitude, xo, yo, sigma_x, sigma_y, theta, offset):
     '''Two dimensional gaussian for fitting.'''
@@ -29,6 +38,21 @@ def twoD_Gaussian(xy, amplitude, xo, yo, sigma_x, sigma_y, theta, offset):
     c = (np.sin(theta)**2)/(2*sigma_x**2) + (np.cos(theta)**2)/(2*sigma_y**2)
     g = offset + amplitude*np.exp( - (a*((x-xo)**2) + 2*b*(x-xo)*(y-yo) 
                             + c*((y-yo)**2)))
+    return g.ravel()
+
+
+def gaussian_plus_background(xy, amplitude, xo, yo, sigma_x, sigma_y, theta, offset, a0, a1, a2):
+    '''Two dimensional gaussian for fitting. Include a background somehow...'''
+    
+    x, y = xy
+    # TODO: add a rotation to this for more general fitting 
+    xo = float(xo)
+    yo = float(yo)    
+    a = (np.cos(theta)**2)/(2*sigma_x**2) + (np.sin(theta)**2)/(2*sigma_y**2)
+    b = -(np.sin(2*theta))/(4*sigma_x**2) + (np.sin(2*theta))/(4*sigma_y**2)
+    c = (np.sin(theta)**2)/(2*sigma_x**2) + (np.cos(theta)**2)/(2*sigma_y**2)
+    g = offset + amplitude*np.exp( - (a*((x-xo)**2) + 2*b*(x-xo)*(y-yo) 
+                            + c*((y-yo)**2))) + a0*x + a1*y + a2*x*y
     return g.ravel()
 
 
@@ -281,7 +305,7 @@ class SpotProfile:
         I, kxx, kyy = self.grid_interpolate(kx, ky, N, method=method)
         f = plt.figure()
         ax = f.add_axes([0.15, 0.1, 0.7, 0.9])
-        ax.pcolormesh(kxx, kyy, I, edgecolors='face')
+        ax.pcolormesh(kxx, kyy, np.log10(I), edgecolors='face')
         ax.axis('equal')
         ax.set_xlabel('$k_x/\mathrm{nm}^{-1}$')
         ax.set_ylabel('$k_y/\mathrm{nm}^{-1}$')
