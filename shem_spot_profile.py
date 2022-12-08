@@ -21,7 +21,14 @@ import matplotlib.gridspec as gridspec
 import os
 from scipy import interpolate as interp
 import pandas as pd
+import copy
 
+# Constants for the wavevector magnitude
+m_u = 1.6605e-27 # kg
+m_He = 4*m_u;
+k_B = 1.380649e-23 # JK^-1
+h = 6.62607015e-34 # Js
+        
 
 def speed_ratio(P_0, d_noz):
     """This fit is from M.Bergi2018 doi.org/10.1016/j.ultramic.2019.112833
@@ -287,13 +294,7 @@ class SpotProfile:
     def calc_dK(self):
         '''Calculates the momentum transer for the data file and the
         "psuedo" kx, ky that we have defined.'''
-        # Constants for the wavevector magnitude
-        m_u = 1.6605e-27 # kg
-        m_He = 4*m_u;
-        k_B = 1.380649e-23 # JK^-1
-        h = 6.62607015e-34 # Js
         K = 2*np.pi*np.sqrt(5*m_He*k_B*self.T)/h; # m^-1
-
         # Calculates the parallel momentum transfer in nm^-1
         self.DK = K*(np.sin(self.theta*np.pi/180) - 1/np.sqrt(2))/1e9;
         # Calculate the projected k values
@@ -310,10 +311,20 @@ class SpotProfile:
         #self.phi(obj.alpha >= 360) = self.phi(self.alpha  >= 360) + 360
         # TODO: tbh this simple version appears to be working fine, but I'm not
         # 100% convinced by it...
-    
-    def shem_diffraction_plot(self, colourmap = cm.viridis, bar_location='right', figsize=[8,6], rasterized=True):
-        sP = self.filter_by_var('z', 2)
+        
+    def shem_polar_plot(self, var, colourmap = cm.viridis, bar_location = 'right', 
+                        figsize = [8,6], rasterized = True, DK_invert=True):
+        if var == 'DK':
+            # If we plot data with -DK we invert it
+            if DK_invert:
+                sP = self.filter_by_var('z', 2, 'above')
+                sP.DK = -sP.DK
+            else:
+                sP = self.filter_by_var('z', 2, 'below')
+        else:
+            sP = self
         fig = plt.figure(figsize=figsize)
+        # The colourbar can go either on the left or the right
         if bar_location == 'right':
             gs = fig.add_gridspec(1,2,width_ratios=[10,0.5])
             ax1=plt.subplot(gs[0], projection="polar", aspect=1.)
@@ -325,14 +336,14 @@ class SpotProfile:
             ax2 = plt.subplot(gs[4])
         else:
             raise ValueError('Unknon colorbar location.')
-        mesh1 = ax1.pcolormesh(sP.alpha*np.pi/180, -sP.DK, np.log10(sP.signal), 
+        # The main plot
+        mesh1 = ax1.pcolormesh(sP.alpha*np.pi/180, getattr(sP, var), np.log10(sP.signal), 
                                edgecolors='face', cmap = colourmap,  rasterized=rasterized)
+        # Thicker axis lines
+        ax1.spines[:].set_linewidth(1.5)
         ax1.set_xlabel('$\\alpha$')
-        ax1.grid()
-        ax1.set_yticks([0, 25, 50, 75])
+        ax1.grid(alpha=0.33)
         ax1.tick_params(axis='y', colors=[0.9,0.9,0.9])
-        #ax1.annotate('DK/nm^-1', (28*np.pi/180, 92), annotation_clip=False)
-        add_scale(ax1, label = '$\Delta K/\\mathrm{nm}^{-1}$')
         if bar_location == 'right':
             fig.colorbar(mesh1, cax=ax2, label="$\\log_{10}(I/\\mathrm{nA})$")
         elif bar_location == 'bottom':
@@ -341,35 +352,38 @@ class SpotProfile:
             plt.subplots_adjust(hspace=0.3)
         return(fig, ax1, ax2)
     
-    def shem_raw_plot(self, colourmap = cm.viridis):
-        fig = plt.figure(figsize=[8,6])
-        gs = fig.add_gridspec(1,2,width_ratios=[10,0.5])
-        ax1=plt.subplot(gs[0], projection="polar", aspect=1.)
-        ax2 = plt.subplot(gs[1])
-        mesh1 = ax1.pcolormesh(self.alpha*np.pi/180, self.z, np.log10(self.signal), 
-                               edgecolors='face', cmap = colourmap)
-        ax1.set_xlabel('$\\alpha$')
-        ax1.grid()
-        ax1.set_yticks([0, 1, 2, 3, 4, 5, 6])
+    def shem_diffraction_plot(self, colourmap = cm.viridis, bar_location='right',
+                              figsize=[8,6], rasterized=True, DK_invert=True):
+        fig, ax1, ax2 = self.shem_polar_plot('DK', colourmap=colourmap, bar_location=bar_location, 
+                                             figsize=figsize, rasterized=rasterized, DK_invert=DK_invert)
+        ax1.set_yticks([0, 25, 50, 75])
         ax1.tick_params(axis='y', colors=[0.9,0.9,0.9])
-        #ax1.annotate('DK/nm^-1', (28*np.pi/180, 92), annotation_clip=False)
-        add_scale(ax1, label = 'z/mm')
-        fig.colorbar(mesh1, cax=ax2, label="$\\log_{10}(I/\\mathrm{nA})$")
+        add_scale(ax1, label = '$\Delta K/\\mathrm{nm}^{-1}$')
         return(fig, ax1, ax2)
     
+    def shem_raw_plot(self, colourmap = cm.viridis,  bar_location='right',
+                      figsize=[8,6], rasterized=True):
+        fig, ax1, ax2 = self.shem_polar_plot('z', colourmap=colourmap, bar_location=bar_location, 
+                                             figsize=figsize, rasterized=rasterized, DK_invert=True)
+        ax1.set_yticks([0, 1, 2, 3, 4, 5, 6])
+        ax1.tick_params(axis='y', colors=[0.9,0.9,0.9])
+        add_scale(ax1, label = 'z/mm')
+        return(fig, ax1, ax2)
     
-    def filter_by_var(self, var, value):
-        # TODO: allow filtering by other variabbles
-        if var == 'z':
-            # Drop data that is z < 2 <=> Dk > 0
-            sh = self.z.shape
-            ind = self.z > value
-            z2 = self.z[ind]
-            ax2 = sh[1]
-            ax1 = int(z2.size/ax2)
-            sP = SpotProfile(z = self.z[ind].reshape(ax1, ax2),
-                             alpha_rotator = self.alpha_rotator[ind].reshape(ax1, ax2),
-                             I =  self.signal[ind].reshape(ax1, ax2))
+    def filter_by_var(self, var, value, direction):
+        sh = getattr(self, var).shape
+        if direction == 'above':
+            ind = getattr(self, var) > value
+        elif direction == 'below':
+            ind = getattr(self, var) < value
+        else:
+            raise ValueError('Do not understand input')
+        z2 = getattr(self, var)[ind]
+        ax2 = sh[1]
+        ax1 = int(z2.size/ax2)
+        sP = SpotProfile(z = self.z[ind].reshape(ax1, ax2),
+                         alpha_rotator = self.alpha_rotator[ind].reshape(ax1, ax2),
+                         I =  self.signal[ind].reshape(ax1, ax2))
         sP.set_alpha_zero(self.alpha_zero)
         sP.calc_dK()
         return(sP)
@@ -399,3 +413,18 @@ class SpotProfile:
         ax.set_ylabel('$k_y/\mathrm{nm}^{-1}$')
         ax.set_title('Interpolated k-plot, method = '+ method)
         return(f, ax)
+    
+    def shift_centre(self, D_kx, D_ky, T = 293):
+        '''Translates the diffraction pattern by the specified amount in kx and
+        ky. Then the variables DK, alpha, theta, z are shifted accordingly'''
+        K = 2*np.pi*np.sqrt(5*m_He*k_B*self.T)/h; # m^-1
+        K = K/1e9
+        a = 1.5 #mm
+        b = 3.5 #mm
+        cP = copy.deepcopy(self)
+        cP.kx = cP.kx + D_kx
+        cP.ky = cP.ky + D_ky
+        cP.DK = cP.ky/np.sin(cP.alpha*pi/180)
+        cP.theta = np.arcsin(cP.DK/K + 1/np.sqrt(2))
+        cP.z = 2*b/(np.tan(cP.theta*pi/180) + 1) - a
+        return(cP)
