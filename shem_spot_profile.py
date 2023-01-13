@@ -18,6 +18,7 @@ import scipy.io
 import matplotlib.pyplot as plt
 from matplotlib import cm # Colour palettes
 import matplotlib.gridspec as gridspec
+import matplotlib.patches as patches
 import os
 from scipy import interpolate as interp
 import pandas as pd
@@ -134,6 +135,7 @@ def add_scale(ax, label, x_offset=0.08):
     scale_ax.set_yticks(ax.get_yticks())
     scale_ax.set_ylim(ax.get_rorigin(), ax.get_rmax())
     scale_ax.set_ylabel(label)
+    return(scale_ax)
 
 
 class SpotProfile:
@@ -253,40 +255,52 @@ class SpotProfile:
         df, chosen_DK = self.select_by_var('DK', DK)
         return((df, chosen_DK))
     
-    def line_plot(self, xvar, var, value, figsize=[5, 3.5], logplot=False):
+    def line_plot(self, xvar, var, value, figsize=[5, 3.5], logplot=False, ax=None, 
+                  rect=[0.15,0.15,0.7,0.7], **kwargs):
          df, chosen = self.select_by_var(var, value)
-         f = plt.figure(figsize=figsize)
-         ax = f.add_axes([0,0,1,1])
+         if ax == None:
+             f = plt.figure(figsize=figsize)
+             ax = f.add_axes(rect)
+         else:
+             f = ax.get_figure()
          if logplot:
              df['signal'] = np.log10(df['signal'])
-         df.plot(x = xvar, y = 'signal', ax = ax)
+         df.plot(x = xvar, y = 'signal', ax = ax, **kwargs)
          if logplot:
-             ax.set_ylabel('$\\log_{10}$(Intensity/nA)')
+             ax.set_ylabel('$\\log_{10}(I/\\mathrm{nA})$')
          else:
-             ax.set_ylabel('Intensity/nA')
+             ax.set_ylabel('I/nA')
          ax.grid(True)
          return(f, ax, df, chosen)
      
-    def line_plot_raw(self, alpha, figsize=[5, 3.5], logplot=False):
-        f, ax, df, chosen_alpha =self.line_plot('z', 'alpha', alpha, figsize=figsize, logplot=logplot)
+    def line_plot_raw(self, alpha, figsize=[5, 3.5], logplot=False, ax=None, 
+                      rect=[0.15,0.15,0.7,0.7], **kwargs):
+        f, ax, df, chosen_alpha =self.line_plot('z', 'alpha', alpha, figsize=figsize, 
+                                                logplot=logplot, ax=ax, rect=rect, **kwargs)
         ax.set_xlabel('$z/\\mathrm{mm}$')
         ax.set_title('1D plot of a zscan at $\\alpha$={}$^\\circ$'.format(chosen_alpha))
         return(f, ax, df)
     
-    def line_plot_diffraction(self, alpha, figsize=[5, 3.5], logplot=False):
-        f, ax, df, chosen_alpha =self.line_plot('DK', 'alpha', alpha, figsize=figsize, logplot=logplot)
+    def line_plot_diffraction(self, alpha, figsize=[5, 3.5], logplot=False, ax=None, 
+                              rect=[0.15,0.15,0.7,0.7], **kwargs):
+        f, ax, df, chosen_alpha =self.line_plot('DK', 'alpha', alpha, figsize=figsize, 
+                                                logplot=logplot, ax=ax, rect=rect, **kwargs)
         ax.set_xlabel('$\\Delta K/\\mathrm{nm}^{-1}$')
         ax.set_title('1D diffraction scan at $\\alpha$={}$^\\circ$'.format(chosen_alpha))
         return(f, ax, df)
     
-    def line_plot_theta(self, alpha, figsize=[5, 3.5], logplot=False):
-        f, ax, df, chosen_alpha =self.line_plot('theta', 'alpha', alpha, figsize=figsize, logplot=logplot)
+    def line_plot_theta(self, alpha, figsize=[5, 3.5], logplot=False, ax=None, 
+                        rect=[0.15,0.15,0.7,0.7], **kwargs):
+        f, ax, df, chosen_alpha =self.line_plot('theta', 'alpha', alpha, figsize=figsize, 
+                                                logplot=logplot, ax=ax, rect=rect, **kwargs)
         ax.set_xlabel('$\\theta_f/^\\circ$')
         ax.set_title('1D diffraction scan at $\\alpha$={}$^\\circ$'.format(chosen_alpha))
         return(f, ax, df)
     
-    def line_plot_alpha(self, z, figsize=[5, 3.5], logplot=False):
-        f, ax, df, chosen_alpha =self.line_plot('alpha', 'z', z, figsize=figsize, logplot=logplot)
+    def line_plot_alpha(self, z, figsize=[5, 3.5], logplot=False, ax=None, 
+                        rect=[0.15,0.15,0.7,0.7], **kwargs):
+        f, ax, df, chosen_alpha =self.line_plot('alpha', 'z', z, figsize=figsize, 
+                                                logplot=logplot, ax=ax, rect=rect, **kwargs)
         ax.set_xlabel('$\\alpha/^\\circ$')
         ax.set_title('$\\alpha$ scan at z={}mm'.format(z))
         return(f, ax, df)
@@ -298,8 +312,8 @@ class SpotProfile:
         # Calculates the parallel momentum transfer in nm^-1
         self.DK = K*(np.sin(self.theta*np.pi/180) - 1/np.sqrt(2))/1e9;
         # Calculate the projected k values
-        self.kx = K*( (np.sin(self.theta*np.pi/180)-1/np.sqrt(2))*np.cos(self.alpha*np.pi/180) )/1e9;
-        self.ky = K*(np.sin(self.theta*np.pi/180)-1/np.sqrt(2))*np.sin(self.alpha*np.pi/180)/1e9;
+        self.kx = -K*( (np.sin(self.theta*np.pi/180)-1/np.sqrt(2))*np.cos(self.alpha*np.pi/180) )/1e9;
+        self.ky = -K*(np.sin(self.theta*np.pi/180)-1/np.sqrt(2))*np.sin(self.alpha*np.pi/180)/1e9;
     
 
     def set_alpha_zero(self, alpha_zero=0):
@@ -326,7 +340,7 @@ class SpotProfile:
         fig = plt.figure(figsize=figsize)
         # The colourbar can go either on the left or the right
         if bar_location == 'right':
-            gs = fig.add_gridspec(1,2,width_ratios=[10,0.5])
+            gs = fig.add_gridspec(1,2,width_ratios=[10,0.5], wspace=0, left=0.11, right=0.88, top=0.9, bottom=0.14)
             ax1=plt.subplot(gs[0], projection="polar", aspect=1.)
             ax2 = plt.subplot(gs[1])
         elif bar_location == 'bottom':
@@ -336,8 +350,9 @@ class SpotProfile:
             ax2 = plt.subplot(gs[4])
         else:
             raise ValueError('Unknon colorbar location.')
-        # The main plot
-        mesh1 = ax1.pcolormesh(sP.alpha*np.pi/180, getattr(sP, var), np.log10(sP.signal), 
+        # The main plot, mask any nan (e.g. values that have been masked out)
+        Z = np.log10(sP.signal)
+        mesh1 = ax1.pcolormesh(sP.alpha*np.pi/180, getattr(sP, var), Z, 
                                edgecolors='face', cmap = colourmap,  rasterized=rasterized)
         # Thicker axis lines
         ax1.spines[:].set_linewidth(1.5)
@@ -345,47 +360,48 @@ class SpotProfile:
         ax1.grid(alpha=0.33)
         ax1.tick_params(axis='y', colors=[0.9,0.9,0.9])
         if bar_location == 'right':
-            fig.colorbar(mesh1, cax=ax2, label="$\\log_{10}(I/\\mathrm{nA})$")
+            fig.colorbar(mesh1, cax=ax2, label="$\\log_{10}(I/\\mathrm{nA})$", shrink=0.1)
         elif bar_location == 'bottom':
-            ax2.set
             fig.colorbar(mesh1, cax=ax2, label="$\\log_{10}(I/\\mathrm{nA})$", orientation='horizontal')
             plt.subplots_adjust(hspace=0.3)
         return(fig, ax1, ax2)
     
     def shem_diffraction_plot(self, colourmap = cm.viridis, bar_location='right',
-                              figsize=[8,6], rasterized=True, DK_invert=True):
+                              figsize=[8,6], rasterized=True, DK_invert=True, x_offset=0.08, DK_max=85):
         fig, ax1, ax2 = self.shem_polar_plot('DK', colourmap=colourmap, bar_location=bar_location, 
                                              figsize=figsize, rasterized=rasterized, DK_invert=DK_invert)
         ax1.set_yticks([0, 25, 50, 75])
+        ax1.set_ylim(0, DK_max)
         ax1.tick_params(axis='y', colors=[0.9,0.9,0.9])
-        add_scale(ax1, label = '$\Delta K/\\mathrm{nm}^{-1}$')
+        add_scale(ax1, label = '$\Delta K/\\mathrm{nm}^{-1}$', x_offset = x_offset)
         return(fig, ax1, ax2)
     
     def shem_raw_plot(self, colourmap = cm.viridis,  bar_location='right',
-                      figsize=[8,6], rasterized=True):
+                      figsize=[8,6], rasterized=True, x_offset = 0.08):
         fig, ax1, ax2 = self.shem_polar_plot('z', colourmap=colourmap, bar_location=bar_location, 
                                              figsize=figsize, rasterized=rasterized, DK_invert=True)
         ax1.set_yticks([0, 1, 2, 3, 4, 5, 6])
         ax1.tick_params(axis='y', colors=[0.9,0.9,0.9])
-        add_scale(ax1, label = 'z/mm')
+        add_scale(ax1, label = 'z/mm', x_offset = x_offset)
         return(fig, ax1, ax2)
     
     def filter_by_var(self, var, value, direction):
-        sh = getattr(self, var).shape
+        #sh = getattr(self, var).shape
         if direction == 'above':
-            ind = getattr(self, var) > value
-        elif direction == 'below':
             ind = getattr(self, var) < value
+        elif direction == 'below':
+            ind = getattr(self, var) > value
         else:
             raise ValueError('Do not understand input')
-        z2 = getattr(self, var)[ind]
-        ax2 = sh[1]
-        ax1 = int(z2.size/ax2)
-        sP = SpotProfile(z = self.z[ind].reshape(ax1, ax2),
-                         alpha_rotator = self.alpha_rotator[ind].reshape(ax1, ax2),
-                         I =  self.signal[ind].reshape(ax1, ax2))
-        sP.set_alpha_zero(self.alpha_zero)
-        sP.calc_dK()
+        sP = copy.deepcopy(self)
+        sP.signal[ind] = np.nan#z2 = getattr(self, var)[ind]
+        #ax2 = sh[1]
+        #ax1 = int(z2.size/ax2)
+        #sP = SpotProfile(z = self.z[ind].reshape(ax1, ax2),
+        #                 alpha_rotator = self.alpha_rotator[ind].reshape(ax1, ax2),
+        #                 I =  self.signal[ind].reshape(ax1, ax2))
+        #sP.set_alpha_zero(self.alpha_zero)
+        #sP.calc_dK()
         return(sP)
     
     def grid_interpolate(self, kx, ky, N=101, method='nearest'):
@@ -394,25 +410,36 @@ class SpotProfile:
         kx = np.linspace(kx[0], kx[1], N)
         ky = np.linspace(ky[0], ky[1], N)
         kxx, kyy = np.meshgrid(kx, ky)
-        I = interp.griddata((self.kx.flatten(), self.ky.flatten()), 
-                        self.signal.flatten(), (kxx, kyy), method=method)
+        z = self.signal.ravel()
+        ind = ~np.isnan(z)
+        x=self.kx.ravel()              #Flat input into 1d vector
+        x=x[ind]   #eliminate any NaN
+        y=self.ky.ravel()
+        y=y[ind]
+        z=z[ind]
+        I = interp.griddata((x, y), z, (kxx, kyy), method=method)
         return(I, kxx, kyy)
     
-    def interpolated_plot(self, kx=(-80, 80), ky=(-80,80), N=101, method='nearest', ax=None):
+    def interpolated_plot(self, kx=(-80, 80), ky=(-80,80), N=101, method='nearest', 
+                          ax=None, limiting_circle=True):
         '''Produce an interpolated plot of the data with N points along the
         kx and ky axes. Useful for checking the output of interpolation'''
         I, kxx, kyy = self.grid_interpolate(kx, ky, N, method=method)
         if ax == None:
             f = plt.figure()
-            ax = f.add_axes([0.15, 0.1, 0.7, 0.9])
+            ax = f.add_axes([0.15, 0.1, 0.7, 0.9], aspect='equal')
         else:
             f = ax.get_figure()
-        ax.pcolormesh(kxx, kyy, np.log10(I), edgecolors='face')
-        ax.axis('equal')
+        if limiting_circle:
+            patch = patches.Circle((0, 0), radius = max(kx), transform = ax.transData)
+        im = ax.pcolormesh(kxx, kyy, np.log10(I), edgecolors='face', rasterized=True)
+        if limiting_circle:
+            im.set_clip_path(patch)
+        #ax.axis('equal')
         ax.set_xlabel('$k_x/\mathrm{nm}^{-1}$')
         ax.set_ylabel('$k_y/\mathrm{nm}^{-1}$')
         ax.set_title('Interpolated k-plot, method = '+ method)
-        return(f, ax)
+        return(f, ax, im)
     
     def shift_centre(self, D_kx, D_ky, T = 293):
         '''Translates the diffraction pattern by the specified amount in kx and
@@ -422,9 +449,15 @@ class SpotProfile:
         a = 1.5 #mm
         b = 3.5 #mm
         cP = copy.deepcopy(self)
+        
+        # Shifted kx,ky
         cP.kx = cP.kx + D_kx
         cP.ky = cP.ky + D_ky
+        #cP.DK = np.sqrt(cP.kx**2 + cP.ky**2)
+        #cP.theta = np.arcsin(cP.DK/K + 1/np.sqrt(2))
+        #cP.z = 2*b/(np.tan(cP.theta*pi/180) + 1) - a
+        #TODO: calculate new alpha....
+        cP.alpha = np.arctan2(cP.ky, cP.kx)*180/pi + 180
         cP.DK = cP.ky/np.sin(cP.alpha*pi/180)
-        cP.theta = np.arcsin(cP.DK/K + 1/np.sqrt(2))
-        cP.z = 2*b/(np.tan(cP.theta*pi/180) + 1) - a
+        cP.alpha = cP.alpha - 180
         return(cP)
