@@ -3,13 +3,19 @@
 """
 Created on Sat Oct 15 09:51:59 2022
 
-@author: Sam Lambrick
-@contributions: Ke Wang
+@author: Sam Lambrick 2022-23
+@contributions: Ke Wang 2022-23
 
 A module for importing, analysing, and plotting SHeM spot profile data.
 
 The 2D Gaussian function is based on this StackOverflow post:
     https://stackoverflow.com/questions/21566379/fitting-a-2d-gaussian-function-using-scipy-optimize-curve-fit-valueerror-and-m
+
+A model for the Parallel speed ratio is used from M Bergin 2017:
+    http://doi.org/10.1016/j.ultramic.2019.112833
+
+Data that was used to fit to Bergin's model is from Toennies & Winkelman :
+    http://doi.org/10.1063/1.434448
 """
 
 import numpy as np
@@ -26,14 +32,22 @@ import copy
 
 # Constants for the wavevector magnitude
 m_u = 1.6605e-27 # kg
-m_He = 4*m_u;
+m_He = 4*m_u;    # kg
 k_B = 1.380649e-23 # JK^-1
 h = 6.62607015e-34 # Js
         
 
 def speed_ratio(P_0, d_noz):
-    """This fit is from M.Bergi2018 doi.org/10.1016/j.ultramic.2019.112833
-    and is to data/simulation from Toennies & Winkelman doi.org/10.1063/1.434448."""
+    """Calculates the parallel speed ratio, S, for the specified nozzle
+    pressure and diameter for a helium beam based on an emprical fit.
+    
+    The fit is from M.Bergi 2018: doi.org/10.1016/j.ultramic.2019.112833
+    and is to data/simulation from Toennies & Winkelman doi.org/10.1063/1.434448.
+    
+    Inputs:
+        P_0 - nozzle pressure in torr
+        d_noz - noxxle diameter in cm
+    """
     a = 0.43
     b = 0.76
     c = 0.84
@@ -43,18 +57,36 @@ def speed_ratio(P_0, d_noz):
     return(10**(lS))
 
 def morse_V(z, x, y, params=(8.03, 1.35, 1.08, 0.102, 4)):
-    """Calculates a corrugated Morse potential of the form used by Celli et 
-    al 1985., x,y,z in Angstroms."""
+    """Calculates a corrugated Morse potential, from eq. 1.2 & 1.3 Celli et al.
+    1995 https://doi.org/10.1063/1.449297.
+    
+    Inputs:
+        z - height from surface
+        x - lateral x position
+        y - lateral y position
+        params - 5 tuple, potential parameters (D0, alpha, alpha1, h, a)
+    
+    """
     D0, alpha, alpha1, h, a = params
     Q = h*(np.cos(2*pi*x/a) + np.cos(2*pi*y/a))
     v = D0*(np.exp(-2*alpha*(z - Q)) - 2*np.exp(-alpha1*z))
     return(v)
 
 def twoD_Gaussian(xy, amplitude, xo, yo, sigma_x, sigma_y, theta, f, g, h, k, l, m):
-    '''Two dimensional gaussian for fitting.'''
+    '''A two dimensional gaussian function for fitting to diffraction peaks.
+    
+    Inputs:
+        xy - tuple of x & y coordinates
+        amplitude - height of the Gaussian
+        x0 - x coordinate of the centre
+        y0 - y coordinate of the centre
+        sigma_x - x direction standard deviation
+        sigma_y - y direction standard deviation
+        theta - clockwise rotation (rad) of the Gaussian
+        f,g,h,k,l,m - parameters for a 2nd order polynomial background
+    '''
     
     x, y = xy
-    # TODO: add a rotation to this for more general fitting 
     xo = float(xo)
     yo = float(yo)    
     a = (np.cos(theta)**2)/(2*sigma_x**2) + (np.sin(theta)**2)/(2*sigma_y**2)
@@ -62,29 +94,31 @@ def twoD_Gaussian(xy, amplitude, xo, yo, sigma_x, sigma_y, theta, f, g, h, k, l,
     c = (np.sin(theta)**2)/(2*sigma_x**2) + (np.cos(theta)**2)/(2*sigma_y**2)
     tot = amplitude*np.exp( - (a*((x-xo)**2) + 2*b*(x-xo)*(y-yo) 
                             + c*((y-yo)**2)))
-    #f, g, h, k, l, m = offset
     tot = tot + f + g*x + h*y + k*x*y + l*x**2 + m*y**2
     return tot.ravel()
-
-def background(xy, f, g, h, k, l, m):
-    x, y = xy
-    tot = f + g*x + h*y + k*x*y + l*x**2 + m*y**2
-    return(tot)
 
 
 def theta_of_z(z):
     '''Calculates the detection angle theta from the z position in mm
-    for the 1st gneration angular resolution pinhole plate.
-    plate: #C06'''
+    for the 1st gneration angular resolution pinhole plate for the Cambridge 
+    A-SHeM.
+    plate specification: #C06'''
     return(np.arctan((7 - (z+1.5))/(z+1.5))*180/np.pi)
 
 
 def load_z_scans(files_ind, path_name, z_zero = 3.41e6):
     '''Loads a series of z scans taken at different aximulath orientations. The
     orientations need to provied seperatly as they are not stored in the data
-    files (as of 5/12/20).
+    files. This file is written specifically for the Cambridge A-SHeM data 
+    taken between 2020-23.
     
     The value of the z zero position should be given in um.
+    
+    Inputs:
+        files_ind - list-like of file index number of the Z scans
+        path_name - path to the data files
+        z_sero - the z=0 value (in stage coordinates, so nm for A-SHeM) of the
+                 z stage.
     
     Note the contents of a Z-scan file for A-SHeM:
         z_positions, inputs, detector_mode, N_dwell, sampling_period, date_time
@@ -117,8 +151,14 @@ def load_z_scans(files_ind, path_name, z_zero = 3.41e6):
 
 
 def add_scale(ax, label, x_offset=0.08):
-    '''A function to add an extra scale to the polar plot with the provided
-    axis handle. The offset determines where the scale is drawn.'''
+    '''A function to add an extra x scale to the polar plot with the provided
+    axis handle. The offset determines where the scale is drawn.
+    
+    Inputs:
+        ax - axis handle on which to add an extra scale
+        label - text label for the new scale
+        x_offset - how far to the left of the plot to add the new scale
+    '''
     
     # add extra axes for the scale
     rect = ax.get_position()
@@ -152,8 +192,8 @@ class SpotProfile:
         self.signal = I                   # Signal levels, matrix
         self.kz = np.array([])            # wavevector z values
         self.DK = np.array([])            # parallel momentum transfer
-        self.kx = np.array([])
-        self.ky = np.array([])
+        self.kx = np.array([])            # parallel momentum transfer projected into the x direction
+        self.ky = np.array([])            # parallel momentum transfer projected into the y direction
         self.chosen_pos = np.array([])    # Example position used to create the profile
         self.example_alpha = np.nan       # Example alpha value used to create the profile (in stage coordinates)
         self.example_positions = np.array([])
@@ -185,7 +225,7 @@ class SpotProfile:
         sP.calc_dK()
         return(sP)
     
-    # TODO: make the simulated data work too!
+
     @classmethod
     def import_ray(cls, data_dir, T=298, alpha_zero=0):
         '''Import ray tracing simulation of a spot profile diffraction scan.
@@ -225,6 +265,10 @@ class SpotProfile:
         return(sP)
     
     def select_by_var(self, var, value):
+        """Select a line scan of the data according to a specific value of one
+        of the parameters, if the exact value is not found the closest value is
+        used."""
+        
         dif = np.abs(value - getattr(self, var))
         ind = np.where(dif == np.min(dif))
         chosen = getattr(self, var)[ind][0]
@@ -257,21 +301,24 @@ class SpotProfile:
     
     def line_plot(self, xvar, var, value, figsize=[5, 3.5], logplot=False, ax=None, 
                   rect=[0.15,0.15,0.7,0.7], **kwargs):
-         df, chosen = self.select_by_var(var, value)
-         if ax == None:
-             f = plt.figure(figsize=figsize)
-             ax = f.add_axes(rect)
-         else:
-             f = ax.get_figure()
-         if logplot:
-             df['signal'] = np.log10(df['signal'])
-         df.plot(x = xvar, y = 'signal', ax = ax, **kwargs)
-         if logplot:
-             ax.set_ylabel('$\\log_{10}(I/\\mathrm{nA})$')
-         else:
-             ax.set_ylabel('I/nA')
-         ax.grid(True)
-         return(f, ax, df, chosen)
+        """Produce a plot of one line of the data set, selected for the
+        specified value of the specified variable."""
+        
+        df, chosen = self.select_by_var(var, value)
+        if ax == None:
+            f = plt.figure(figsize=figsize)
+            ax = f.add_axes(rect)
+        else:
+            f = ax.get_figure()
+        if logplot:
+            df['signal'] = np.log10(df['signal'])
+        df.plot(x = xvar, y = 'signal', ax = ax, **kwargs)
+        if logplot:
+            ax.set_ylabel('$\\log_{10}(I/\\mathrm{nA})$')
+        else:
+            ax.set_ylabel('I/nA')
+        ax.grid(True)
+        return(f, ax, df, chosen)
      
     def line_plot_raw(self, alpha, figsize=[5, 3.5], logplot=False, ax=None, 
                       rect=[0.15,0.15,0.7,0.7], **kwargs):
@@ -318,13 +365,10 @@ class SpotProfile:
 
     def set_alpha_zero(self, alpha_zero=0):
         '''Sets the correct 0 for the azimuthal angle such that 0 lies along
-        one of the principle azimuths: alpha_zero in degrees'''
+        one of the principle azimuths: alpha_zero in degrees.'''
         self.alpha = self.alpha_rotator - alpha_zero
         self.alpha_zero = alpha_zero
-        #self.phi(obj.alpha < 0) = self.phi(self.alpha < 0) + 360
-        #self.phi(obj.alpha >= 360) = self.phi(self.alpha  >= 360) + 360
-        # TODO: tbh this simple version appears to be working fine, but I'm not
-        # 100% convinced by it...
+        
         
     def shem_polar_plot(self, var, colourmap = cm.viridis, bar_location = 'right', 
                         figsize = [8,6], rasterized = True, DK_invert=True):
@@ -386,7 +430,8 @@ class SpotProfile:
         return(fig, ax1, ax2)
     
     def filter_by_var(self, var, value, direction):
-        #sh = getattr(self, var).shape
+        """Filters the data above or below the specified value for the
+        specified variable. direction may be 'above' or 'below'."""
         if direction == 'above':
             ind = getattr(self, var) < value
         elif direction == 'below':
@@ -394,14 +439,7 @@ class SpotProfile:
         else:
             raise ValueError('Do not understand input')
         sP = copy.deepcopy(self)
-        sP.signal[ind] = np.nan#z2 = getattr(self, var)[ind]
-        #ax2 = sh[1]
-        #ax1 = int(z2.size/ax2)
-        #sP = SpotProfile(z = self.z[ind].reshape(ax1, ax2),
-        #                 alpha_rotator = self.alpha_rotator[ind].reshape(ax1, ax2),
-        #                 I =  self.signal[ind].reshape(ax1, ax2))
-        #sP.set_alpha_zero(self.alpha_zero)
-        #sP.calc_dK()
+        sP.signal[ind] = np.nan#
         return(sP)
     
     def grid_interpolate(self, kx, ky, N=101, method='nearest'):
@@ -421,12 +459,12 @@ class SpotProfile:
         return(I, kxx, kyy)
     
     def interpolated_plot(self, kx=(-80, 80), ky=(-80,80), N=101, method='nearest', 
-                          ax=None, limiting_circle=True):
+                          ax=None, limiting_circle=True, figsize=(8,8)):
         '''Produce an interpolated plot of the data with N points along the
         kx and ky axes. Useful for checking the output of interpolation'''
         I, kxx, kyy = self.grid_interpolate(kx, ky, N, method=method)
         if ax == None:
-            f = plt.figure()
+            f = plt.figure(figsize=figsize)
             ax = f.add_axes([0.15, 0.1, 0.7, 0.9], aspect='equal')
         else:
             f = ax.get_figure()
@@ -443,7 +481,8 @@ class SpotProfile:
     
     def shift_centre(self, D_kx, D_ky, T = 293):
         '''Translates the diffraction pattern by the specified amount in kx and
-        ky. Then the variables DK, alpha, theta, z are shifted accordingly'''
+        ky. Note: this does not yet fully propogate the change through all the
+        variables.'''
         K = 2*np.pi*np.sqrt(5*m_He*k_B*self.T)/h; # m^-1
         K = K/1e9
         a = 1.5 #mm
