@@ -98,12 +98,21 @@ def twoD_Gaussian(xy, amplitude, xo, yo, sigma_x, sigma_y, theta, f, g, h, k, l,
     return tot.ravel()
 
 
-def theta_of_z(z):
+def theta_of_z(z, plate="C06", WD=2):
     '''Calculates the detection angle theta from the z position in mm
     for the 1st gneration angular resolution pinhole plate for the Cambridge 
-    A-SHeM.
-    plate specification: #C06'''
-    return(np.arctan((7 - (z+1.5))/(z+1.5))*180/np.pi)
+    A-SHeM. plate specification: #C06
+    
+    Alternaticly: calculates the detection angle, theta, from the z position in mm for a
+    45deg incidnece and 45deg detection pinhole plate with the specified design
+    working distance WD
+    '''
+    if plate == "C06":
+        return(np.arctan((7 - (z+1.5))/(z+1.5))*180/np.pi)
+    elif plate == "standard":
+        return(np.arctan((2*WD - z)/z)*180/np.pi)
+    else:
+        raise ValueError('Unkwon pinhole plate, known: "C06" and "standard')
 
 
 def load_z_scans(files_ind, path_name, z_zero = 3.41e6):
@@ -183,10 +192,10 @@ class SpotProfile:
     loaded in from a series of z-scans) along with data analysis and plotting
     functions.'''
     
-    def __init__(self, z, alpha_rotator, I):
+    def __init__(self, z, alpha_rotator, I, plate="C06", WD = 2):
         # TODO: example positions etc. not really being used yet!
         self.z = z                        # z position, matrix
-        self.theta = theta_of_z(z)        # Polar detection angle, matrix
+        self.theta = theta_of_z(z, plate, WD) # Polar detection angle, matrix
         self.alpha_rotator = alpha_rotator# Rotator stage angle, matrix
         self.alpha = np.array([])         # azimuthal angle orientated with the crystal, matrix
         self.signal = I                   # Signal levels, matrix
@@ -227,7 +236,7 @@ class SpotProfile:
     
 
     @classmethod
-    def import_ray(cls, data_dir, T=298, alpha_zero=0):
+    def import_ray(cls, data_dir, T=298, alpha_zero=0, plate="C06", WD=2):
         '''Import ray tracing simulation of a spot profile diffraction scan.
         Note that this is for a simualtion of the first generation angular
         resolution pinhole plate.'''
@@ -251,11 +260,17 @@ class SpotProfile:
             sim_data = scipy.io.loadmat(data_dir + 'rotation{0:g}'.format(a) + '/formatted/reconstructionSimulation.mat')
             signals = sim_data['im']['single'][0][0][0] + sim_data['im']['multiple'][0][0][0]
             I[:,i] = signals
-        zs = zs - 1.5;
+        
+        if plate == "C06":
+            # First A-SHeM diffraction pinholeplate has a recessed aperture, 
+            # compensate for that
+            zs = zs - 1.5;
+        elif plate != "standard":
+            ValueError('Unknon pinholeplate types, known: "C06" & "standard".')
    
         alphas = np.repeat(np.resize(np.array(alphas), [1, n_alpha]), n_z, axis=0)
         zs = np.repeat(np.resize(zs, [n_z, 1]), n_alpha, axis=1)
-        sP = cls(z = zs, alpha_rotator = alphas, I = I)
+        sP = cls(z = zs, alpha_rotator = alphas, I = I, plate=plate, WD=WD)
         
         # The example image the spot was defined from was at 300deg
         sP.T = T
