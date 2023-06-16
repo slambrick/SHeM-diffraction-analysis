@@ -41,7 +41,7 @@ def speed_ratio(P_0, d_noz):
     """Calculates the parallel speed ratio, S, for the specified nozzle
     pressure and diameter for a helium beam based on an emprical fit.
     
-    The fit is from M.Bergi 2018: doi.org/10.1016/j.ultramic.2019.112833
+    The fit is from M.Bergin 2018: doi.org/10.1016/j.ultramic.2019.112833
     and is to data/simulation from Toennies & Winkelman doi.org/10.1063/1.434448.
     
     Inputs:
@@ -97,6 +97,10 @@ def twoD_Gaussian(xy, amplitude, xo, yo, sigma_x, sigma_y, theta, f, g, h, k, l,
     tot = tot + f + g*x + h*y + k*x*y + l*x**2 + m*y**2
     return tot.ravel()
 
+def background(xy, f, g, h, k, l, m):
+    x, y = xy
+    b = f + g*x + h*y + k*x*y + l*x**2 + m*y**2
+    return(b)
 
 def theta_of_z(z, plate="C06", WD=2):
     '''Calculates the detection angle theta from the z position in mm
@@ -127,7 +131,8 @@ def load_z_scans(files_ind, path_name, z_zero = 3.41e6):
         files_ind - list-like of file index number of the Z scans
         path_name - path to the data files
         z_sero - the z=0 value (in stage coordinates, so nm for A-SHeM) of the
-                 z stage.
+                 z stage. The default value is for A-SHeM measurements of LiF
+                 taken in the Autumn of 2020.
     
     Note the contents of a Z-scan file for A-SHeM:
         z_positions, inputs, detector_mode, N_dwell, sampling_period, date_time
@@ -383,6 +388,20 @@ class SpotProfile:
         one of the principle azimuths: alpha_zero in degrees.'''
         self.alpha = self.alpha_rotator - alpha_zero
         self.alpha_zero = alpha_zero
+        
+    
+    def shem_cartesian_plot(self, var, colourmap = cm.viridis,
+                            figsize = [6,4], rasterized = True):
+        fig, ax1 = plt.subplots()
+        fig.set_size_inches(figsize[0], figsize[1])
+        Z = np.log10(self.signal)
+        mesh1 = ax1.pcolormesh(self.alpha, getattr(self, var), Z,
+                               edgecolors='face', cmap = colourmap, rasterized=rasterized)
+        ax1.set_xlabel('$\\alpha/^\\circ$')
+        ax1.set_ylabel(var)
+        ax1.grid(alpha=0.33)
+        cbar = fig.colorbar(mesh1, label="$\\log_{10}(I/\\mathrm{nA})$",)
+        return(fig, ax1, mesh1)
         
         
     def shem_polar_plot(self, var, colourmap = cm.viridis, bar_location = 'right', 
