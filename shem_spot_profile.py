@@ -115,11 +115,14 @@ def theta_of_z(z, plate="C06", WD=2):
         return(np.arctan((7 - (z+1.5))/(z+1.5))*180/np.pi)
     elif plate == "standard":
         return(np.arctan((2*WD - z)/z)*180/np.pi)
+    elif plate == "Z07":
+        L = np.arctan(6*np.tan(30*np.pi/18))
+        return(((L - z)/z)*180/np.pi) #TOOD
     else:
-        raise ValueError('Unkwon pinhole plate, known: "C06" and "standard')
+        raise ValueError('Unkwon pinhole plate, known: "C06", "Z07", "standard')
 
 
-def load_z_scans(files_ind, path_name, z_zero = 3.41e6):
+def load_z_scans(files, z_zero = 3.41e6, instrument = 'ashem'):
     '''Loads a series of z scans taken at different aximulath orientations. The
     orientations need to provied seperatly as they are not stored in the data
     files. This file is written specifically for the Cambridge A-SHeM data 
@@ -141,28 +144,67 @@ def load_z_scans(files_ind, path_name, z_zero = 3.41e6):
     '''
    
     # Import the meas structure
-    fname = '{}/Z{}.mat'.format(path_name,str(files_ind[0]).zfill(6))
-    meas = scipy.io.loadmat(fname)['meas']
-
-    # Note the [0][0] needed to extract the data from the Matlab scruct
-    data = np.zeros([len(files_ind), len(meas['counts'][0][0])])
+    meas = scipy.io.loadmat(files[0])['meas']
     
-    # Get the z positions (the same for all the data files)
-    zs = (z_zero - meas['z_positions'][0][0])*1e-6
+    # Get the z positions (the same for all the data files
+    # A-SHeM has positive z towards the pinhole plate
+    # B-SHeM has positive z away from the pinhole plate
+    if instrument == 'ashem':
+        zs = (z_zero - meas['z_positions'][0][0]) 
+    elif instrument == 'bshem': 
+        zs = (meas['z_positions'][0][0] - z_zero) 
+    else: 
+        raise('Unkown instrument input in load_z_scans') 
     for j, item in enumerate(meas['inputs'][0][0][0]):
         if isinstance(item[0], str):
             if item[0] == 'example_pos':
                 example_pos = meas['inputs'][0][0][0][j+1][0]
                 break
 
-    # Load in the signals and the example position
-    for i, ind in enumerate(files_ind):
-        fname = '{}/Z{}.mat'.format(path_name,str(ind).zfill(6))
-        meas = scipy.io.loadmat(fname)['meas']
+    return(zs, meas, example_pos)
+
+
+def load_z_scans_ashem(files_ind, path_name, z_zero = 3.41e6):
+    ashem_fname = np.vectorize(lambda ind, p : '{}/Z{}.mat'.format(p, str(ind).zfill(6)))
+    files = ashem_fname(files_ind, path_name)
+    zs, meas, example_pos = load_z_scans(files, z_zero = z_zero, instrument = 'ashem')
+    # Load in the data
+    # Note the [0][0] needed to extract the data from the Matlab scruct
+    data = np.zeros([len(files_ind), len(meas['counts'][0][0])])
+    for i, f in enumerate(files):
+        meas = scipy.io.loadmat(f)['meas']
         data[i,:] = meas['counts'][0][0].flatten()*1e9 # Convert to nA from A
     
-    return({'zs' : zs, 'I' : data.transpose(), 'example_pos' : example_pos})
+    # A-SHeM uses nm
+    return({'zs' : zs*1e-6, 'I' : data.transpose(), 'example_pos' : example_pos})
 
+
+def load_z_scans_txt(files_ind, path_name, z_zero):
+    """Reads in z scans for the A-SHeM where data has been saves in text files
+    rather than in .mat files."""
+    # TODO: read in ashem data from text files
+
+
+def load_z_scans_bshem(files_ind, path_name, z_zero=2.5e9, detector = 1):
+    """Reads in z scans for the B-SHeM."""
+    bshem_fname = np.vectorize(lambda ind, p : '{}/ZS{}.mat'.format(p, str(ind).zfill(6)))
+    files = bshem_fname(files_ind, path_name)
+    zs, meas, example_pos = load_z_scans(files, z_zero = z_zero, instrument = 'bshem')
+    # Load in the data
+    # Note the [0][0] needed to extract the data from the Matlab scruct
+    data = np.zeros([len(files_ind), len(meas['counts'][0][0])])
+    for i, f in enumerate(files):
+        meas = scipy.io.loadmat(f)['meas']
+        data[i,:] = meas['current_all'][0][0][:,detector].flatten()
+    
+    # B-SHeM uses pm
+    return({'zs' : zs*1e-9, 'I' : data.transpose(), 'example_pos' : example_pos})
+
+
+def load_z_scans_bshem_txt(files_ind, path_name, z_zero, detector = 1):
+    """Reads in z scans for the A-SHeM where data has been saves in text files
+    rather than in .mat files."""
+    # TODO: read in ashem data from text files
 
 def add_scale(ax, label, x_offset=0.08):
     '''A function to add an extra x scale to the polar plot with the provided
@@ -217,12 +259,12 @@ class SpotProfile:
         self.T = 300
     
     @classmethod
-    def import_ashem(cls, file_ind, dpath, alphas, T=298, alpha_zero=0):
+    def import_ashem(cls, file_ind, dpath, alphas, T=298, alpha_zero=0, z_zero = 3.41e6):
         '''Loads an experimental spot profile from a series of z scan data
         files.'''
         
         # Load the data
-        data = load_z_scans(file_ind, dpath)
+        data = load_z_scans_ashem(file_ind, dpath, z_zero = z_zero)
         
         # Number of rows (z values)
         # and columns (alpha values)
@@ -230,7 +272,7 @@ class SpotProfile:
         alphas = np.repeat(np.resize(alphas, [1, c]), r, axis=0)
         zs = np.repeat(data['zs'], c, axis=1)
         #alphas = np.repeat(np.resize(alphas, [1, c]), r, axis=0)
-        sP = cls(z = zs, alpha_rotator = alphas, I = data['I'])
+        sP = cls(z = zs, alpha_rotator = alphas, I = data['I'], plate = "C06")
         
         # The example image the spot was defined from was at 300deg
         sP.T = T
@@ -239,6 +281,26 @@ class SpotProfile:
         sP.calc_dK()
         return(sP)
     
+    
+    @classmethod
+    def import_bshem(cls, file_ind, dpath, alphas, T=298, alpha_zero=0, z_zero = 2.5e9):
+        # Load the data
+        data = load_z_scans_bshem(file_ind, dpath, z_zero = z_zero)
+        
+        # Number of rows (z values)
+        # and columns (alpha values)
+        r, c = data['I'].shape
+        alphas = np.repeat(np.resize(alphas, [1, c]), r, axis=0)
+        zs = np.repeat(data['zs'], c, axis=1)
+        #alphas = np.repeat(np.resize(alphas, [1, c]), r, axis=0)
+        sP = cls(z = zs, alpha_rotator = alphas, I = data['I'], plate="Z07")
+        
+        # The example image the spot was defined from was at 300deg
+        sP.T = T
+        sP.example_alpha = 300
+        sP.set_alpha_zero(alpha_zero)
+        sP.calc_dK()
+        return(sP)
 
     @classmethod
     def import_ray(cls, data_dir, T=298, alpha_zero=0, plate="C06", WD=2):
@@ -427,7 +489,7 @@ class SpotProfile:
             ax1=plt.subplot(gs[0:3], projection="polar", aspect=1.)
             ax2 = plt.subplot(gs[4])
         else:
-            raise ValueError('Unknon colorbar location.')
+            raise ValueError('Unknown colorbar location.')
         # The main plot, mask any nan (e.g. values that have been masked out)
         Z = np.log10(sP.signal)
         mesh1 = ax1.pcolormesh(sP.alpha*np.pi/180, getattr(sP, var), Z, 
