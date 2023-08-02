@@ -44,6 +44,7 @@ def energy_from_T(T):
     E = 5*k_B*T/2 # J
     return(E)
 
+
 def effective_T(E):
     """Calculates the 'effective temperature' for the beam, that is the
     equivalent temperature for a pure helium beam with this energy. Accepts
@@ -228,6 +229,7 @@ def load_z_scans_bshem_txt(files_ind, path_name, z_zero, detector = 1):
     """Reads in z scans for the A-SHeM where data has been saves in text files
     rather than in .mat files."""
     # TODO: read in ashem data from text files
+
 
 def add_scale(ax, label, x_offset=0.08):
     '''A function to add an extra x scale to the polar plot with the provided
