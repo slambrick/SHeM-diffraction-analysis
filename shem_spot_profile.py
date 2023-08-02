@@ -35,7 +35,22 @@ m_u = 1.6605e-27 # kg
 m_He = 4*m_u;    # kg
 k_B = 1.380649e-23 # JK^-1
 h = 6.62607015e-34 # Js
+
         
+def energy_from_T(T):
+    """Calculates incident helium energy in J from the beam temperature  - 
+    assumes a pure beam."""
+    E = 5*k_B*T/2 # J
+    return(E)
+
+def effective_T(E):
+    """Calculates the 'effective temperature' for the beam, that is the
+    equivalent temperature for a pure helium beam with this energy. Accepts
+    energy in meV."""
+    E = E*1.6e-19/1000
+    T = 2*E/(5*k_B)
+    return(T)
+
 
 def speed_ratio(P_0, d_noz):
     """Calculates the parallel speed ratio, S, for the specified nozzle
@@ -56,6 +71,7 @@ def speed_ratio(P_0, d_noz):
     lS = a*np.log10(P_0*d_noz) + b + c/(1 + np.exp(-d*(np.log10(P_0*d_noz) - mu)))
     return(10**(lS))
 
+
 def morse_V(z, x, y, params=(8.03, 1.35, 1.08, 0.102, 4)):
     """Calculates a corrugated Morse potential, from eq. 1.2 & 1.3 Celli et al.
     1995 https://doi.org/10.1063/1.449297.
@@ -71,6 +87,7 @@ def morse_V(z, x, y, params=(8.03, 1.35, 1.08, 0.102, 4)):
     Q = h*(np.cos(2*pi*x/a) + np.cos(2*pi*y/a))
     v = D0*(np.exp(-2*alpha*(z - Q)) - 2*np.exp(-alpha1*z))
     return(v)
+
 
 def twoD_Gaussian(xy, amplitude, xo, yo, sigma_x, sigma_y, theta, f, g, h, k, l, m):
     '''A two dimensional gaussian function for fitting to diffraction peaks.
@@ -97,15 +114,20 @@ def twoD_Gaussian(xy, amplitude, xo, yo, sigma_x, sigma_y, theta, f, g, h, k, l,
     tot = tot + f + g*x + h*y + k*x*y + l*x**2 + m*y**2
     return tot.ravel()
 
+
 def background(xy, f, g, h, k, l, m):
     x, y = xy
     b = f + g*x + h*y + k*x*y + l*x**2 + m*y**2
     return(b)
 
+
 def theta_of_z(z, plate="C06", WD=2):
     '''Calculates the detection angle theta from the z position in mm
     for the 1st gneration angular resolution pinhole plate for the Cambridge 
     A-SHeM. plate specification: #C06
+    
+    Can also calculate the detection angle from the z position in mm for the 
+    mixed gas pinhole plate for the Cambridge B-SHeM. plate specification: #Z07
     
     Alternaticly: calculates the detection angle, theta, from the z position in mm for a
     45deg incidnece and 45deg detection pinhole plate with the specified design
@@ -116,8 +138,8 @@ def theta_of_z(z, plate="C06", WD=2):
     elif plate == "standard":
         return(np.arctan((2*WD - z)/z)*180/np.pi)
     elif plate == "Z07":
-        L = np.arctan(6*np.tan(30*np.pi/18))
-        return(((L - z)/z)*180/np.pi) #TOOD
+        L = 6*np.tan(30*np.pi/180)
+        return(np.arctan((L - z*np.tan(30*np.pi/180))/z)*180/np.pi) #TOOD
     else:
         raise ValueError('Unkwon pinhole plate, known: "C06", "Z07", "standard')
 
@@ -256,7 +278,8 @@ class SpotProfile:
                     # A list of all the example positions used for the z
                     # scans.
         self.alpha_zero = 0
-        self.T = 300
+        self.T = 300 # Effective temperature in K (equivalent to pure beam)
+        self.incident_energy = energy_from_T(self.T) # meV
     
     @classmethod
     def import_ashem(cls, file_ind, dpath, alphas, T=298, alpha_zero=0, z_zero = 3.41e6):
@@ -283,9 +306,9 @@ class SpotProfile:
     
     
     @classmethod
-    def import_bshem(cls, file_ind, dpath, alphas, T=298, alpha_zero=0, z_zero = 2.5e9):
+    def import_bshem(cls, file_ind, dpath, alphas, T=298, alpha_zero=0, z_zero = 2.5e9, detector=1):
         # Load the data
-        data = load_z_scans_bshem(file_ind, dpath, z_zero = z_zero)
+        data = load_z_scans_bshem(file_ind, dpath, z_zero = z_zero, detector = detector)
         
         # Number of rows (z values)
         # and columns (alpha values)
@@ -434,9 +457,9 @@ class SpotProfile:
         ax.set_title('$\\alpha$ scan at z={}mm'.format(z))
         return(f, ax, df)
     
-    def calc_dK(self):
+    def calc_dK(self, incident_angle = 45):
         '''Calculates the momentum transer for the data file and the
-        "psuedo" kx, ky that we have defined.'''
+        "psuedo" kx, ky that we have defined. If a non '''
         K = 2*np.pi*np.sqrt(5*m_He*k_B*self.T)/h; # m^-1
         # Calculates the parallel momentum transfer in nm^-1
         self.DK = K*(np.sin(self.theta*np.pi/180) - 1/np.sqrt(2))/1e9;
@@ -467,7 +490,7 @@ class SpotProfile:
         
         
     def shem_polar_plot(self, var, colourmap = cm.viridis, bar_location = 'right', 
-                        figsize = [8,6], rasterized = True, DK_invert=True):
+                        figsize = [8,6], rasterized = True, DK_invert=True, logplot=True):
         if var == 'DK':
             # If we plot data with -DK we invert it
             if DK_invert:
@@ -491,7 +514,7 @@ class SpotProfile:
         else:
             raise ValueError('Unknown colorbar location.')
         # The main plot, mask any nan (e.g. values that have been masked out)
-        Z = np.log10(sP.signal)
+        Z = np.log10(sP.signal) if logplot else sP.signal
         mesh1 = ax1.pcolormesh(sP.alpha*np.pi/180, getattr(sP, var), Z, 
                                edgecolors='face', cmap = colourmap,  rasterized=rasterized)
         # Thicker axis lines
@@ -499,17 +522,20 @@ class SpotProfile:
         ax1.set_xlabel('$\\alpha$')
         ax1.grid(alpha=0.33)
         ax1.tick_params(axis='y', colors=[0.9,0.9,0.9])
+        label_str = "$\\log_{10}(I/\\mathrm{nA})$" if logplot else "$I/\\mathrm{nA}$"
         if bar_location == 'right':
-            fig.colorbar(mesh1, cax=ax2, label="$\\log_{10}(I/\\mathrm{nA})$", shrink=0.1)
+            fig.colorbar(mesh1, cax=ax2, label=label_str, shrink=0.1)
         elif bar_location == 'bottom':
-            fig.colorbar(mesh1, cax=ax2, label="$\\log_{10}(I/\\mathrm{nA})$", orientation='horizontal')
+            fig.colorbar(mesh1, cax=ax2, label=label_str, orientation='horizontal')
             plt.subplots_adjust(hspace=0.3)
         return(fig, ax1, ax2)
     
     def shem_diffraction_plot(self, colourmap = cm.viridis, bar_location='right',
-                              figsize=[8,6], rasterized=True, DK_invert=True, x_offset=0.08, DK_max=85):
+                              figsize=[8,6], rasterized=True, DK_invert=True, 
+                              x_offset=0.08, DK_max=85, logplot=True):
         fig, ax1, ax2 = self.shem_polar_plot('DK', colourmap=colourmap, bar_location=bar_location, 
-                                             figsize=figsize, rasterized=rasterized, DK_invert=DK_invert)
+                                             figsize=figsize, rasterized=rasterized, DK_invert=DK_invert,
+                                             logplot=logplot)
         ax1.set_yticks([0, 25, 50, 75])
         ax1.set_ylim(0, DK_max)
         ax1.tick_params(axis='y', colors=[0.9,0.9,0.9])
@@ -517,9 +543,11 @@ class SpotProfile:
         return(fig, ax1, ax2)
     
     def shem_raw_plot(self, colourmap = cm.viridis,  bar_location='right',
-                      figsize=[8,6], rasterized=True, x_offset = 0.08):
+                      figsize=[8,6], rasterized=True, x_offset = 0.08,
+                      logplot=True):
         fig, ax1, ax2 = self.shem_polar_plot('z', colourmap=colourmap, bar_location=bar_location, 
-                                             figsize=figsize, rasterized=rasterized, DK_invert=True)
+                                             figsize=figsize, rasterized=rasterized, DK_invert=True,
+                                             logplot=logplot)
         ax1.set_yticks([0, 1, 2, 3, 4, 5, 6])
         ax1.tick_params(axis='y', colors=[0.9,0.9,0.9])
         add_scale(ax1, label = 'z/mm', x_offset = x_offset)
