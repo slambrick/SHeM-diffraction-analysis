@@ -19,6 +19,7 @@ Data that was used to fit to Bergin's model is from Toennies & Winkelman :
 """
 
 import numpy as np
+from numpy import sqrt
 from numpy import pi
 import scipy.io
 import matplotlib.pyplot as plt
@@ -134,12 +135,12 @@ def theta_of_z(z, plate="C06", WD=2):
     working distance WD
     '''
     if plate == "C06":
-        return(np.arctan((7 - (z+1.5))/(z+1.5))*180/np.pi)
+        return(np.arctan((7 - (z+1.5))/(z+1.5))*180/pi)
     elif plate == "standard":
-        return(np.arctan((2*WD - z)/z)*180/np.pi)
+        return(np.arctan((2*WD - z)/z)*180/pi)
     elif plate == "Z07":
-        L = 6*np.tan(30*np.pi/180)
-        return(np.arctan((L - z*np.tan(30*np.pi/180))/z)*180/np.pi) #TOOD
+        L = 6*np.tan(30*pi/180)
+        return(np.arctan((L - z*np.tan(30*pi/180))/z)*180/pi) #TOOD
     else:
         raise ValueError('Unkwon pinhole plate, known: "C06", "Z07", "standard')
 
@@ -277,9 +278,9 @@ class SpotProfile:
         self.example_positions = np.array([])
                     # A list of all the example positions used for the z
                     # scans.
-        self.alpha_zero = 0
-        self.T = 300 # Effective temperature in K (equivalent to pure beam)
-        self.incident_energy = energy_from_T(self.T) # meV
+        self.alpha_zero = 0            # The value of alpha of one of the principle azimuths (for alignment)
+        self.T = 300                   # Effective temperature in K (equivalent to pure beam)
+        self.E = energy_from_T(self.T) # meV
     
     @classmethod
     def import_ashem(cls, file_ind, dpath, alphas, T=298, alpha_zero=0, z_zero = 3.41e6):
@@ -301,7 +302,7 @@ class SpotProfile:
         sP.T = T
         sP.example_alpha = 300
         sP.set_alpha_zero(alpha_zero)
-        sP.calc_dK()
+        sP.calc_dK(incident_angle = 45)
         return(sP)
     
     
@@ -322,7 +323,7 @@ class SpotProfile:
         sP.T = T
         sP.example_alpha = 300
         sP.set_alpha_zero(alpha_zero)
-        sP.calc_dK()
+        sP.calc_dK(incident_angle = 30)
         return(sP)
 
     @classmethod
@@ -343,11 +344,13 @@ class SpotProfile:
         n_alpha = len(alphas)
         
         # Get the number of z positions used
-        zs = scipy.io.loadmat(data_dir + rot_dirs[0] + '/formatted/reconstructionSimulation.mat')['param']['sample_positions'][0][0][0]
+        mat_fname = data_dir + rot_dirs[0] + '/formatted/reconstructionSimulation.mat'
+        zs = scipy.io.loadmat(mat_fname)['param']['sample_positions'][0][0][0]
         n_z = len(zs)
         I = np.zeros([n_z, n_alpha])
         for i, a in enumerate(alphas):
-            sim_data = scipy.io.loadmat(data_dir + 'rotation{0:g}'.format(a) + '/formatted/reconstructionSimulation.mat')
+            mat_fname = data_dir + 'rotation{0:g}'.format(a) + '/formatted/reconstructionSimulation.mat'
+            sim_data = scipy.io.loadmat(mat_fname)
             signals = sim_data['im']['single'][0][0][0] + sim_data['im']['multiple'][0][0][0]
             I[:,i] = signals
         
@@ -368,6 +371,11 @@ class SpotProfile:
         sP.set_alpha_zero(0)
         sP.calc_dK()
         return(sP)
+    
+    def save_to_text(self, fname):
+        """Saves the object to a text file for further analysis or saving for
+        later without import from the raw z scans."""
+        # TODO: write this 
     
     def select_by_var(self, var, value):
         """Select a line scan of the data according to a specific value of one
@@ -460,12 +468,14 @@ class SpotProfile:
     def calc_dK(self, incident_angle = 45):
         '''Calculates the momentum transer for the data file and the
         "psuedo" kx, ky that we have defined. If a non '''
-        K = 2*np.pi*np.sqrt(5*m_He*k_B*self.T)/h; # m^-1
+        K = 2*pi*sqrt(2*m_He*self.E)/h # m^-1
+        #K = k*np.sin(incident_angle*pi/180) 
+        #K = 2*pi*sqrt(5*m_He*k_B*self.T)/h; # m^-1
         # Calculates the parallel momentum transfer in nm^-1
-        self.DK = K*(np.sin(self.theta*np.pi/180) - 1/np.sqrt(2))/1e9;
+        self.DK = K*(np.sin(self.theta*pi/180) - np.sin(incident_angle*pi/180) )/1e9;
         # Calculate the projected k values
-        self.kx = -K*( (np.sin(self.theta*np.pi/180)-1/np.sqrt(2))*np.cos(self.alpha*np.pi/180) )/1e9;
-        self.ky = -K*(np.sin(self.theta*np.pi/180)-1/np.sqrt(2))*np.sin(self.alpha*np.pi/180)/1e9;
+        self.kx = -K*( (np.sin(self.theta*pi/180) - np.sin(incident_angle*pi/180) )*np.cos(self.alpha*pi/180) )/1e9;
+        self.ky = -K*(np.sin(self.theta*pi/180) - np.sin(incident_angle*pi/180) )*np.sin(self.alpha*pi/180)/1e9;
     
 
     def set_alpha_zero(self, alpha_zero=0):
@@ -515,7 +525,7 @@ class SpotProfile:
             raise ValueError('Unknown colorbar location.')
         # The main plot, mask any nan (e.g. values that have been masked out)
         Z = np.log10(sP.signal) if logplot else sP.signal
-        mesh1 = ax1.pcolormesh(sP.alpha*np.pi/180, getattr(sP, var), Z, 
+        mesh1 = ax1.pcolormesh(sP.alpha*pi/180, getattr(sP, var), Z, 
                                edgecolors='face', cmap = colourmap,  rasterized=rasterized)
         # Thicker axis lines
         ax1.spines[:].set_linewidth(1.5)
@@ -607,7 +617,7 @@ class SpotProfile:
         '''Translates the diffraction pattern by the specified amount in kx and
         ky. Note: this does not yet fully propogate the change through all the
         variables.'''
-        K = 2*np.pi*np.sqrt(5*m_He*k_B*self.T)/h; # m^-1
+        K = 2*pi*sqrt(5*m_He*k_B*self.T)/h; # m^-1
         K = K/1e9
         a = 1.5 #mm
         b = 3.5 #mm
@@ -616,8 +626,8 @@ class SpotProfile:
         # Shifted kx,ky
         cP.kx = cP.kx + D_kx
         cP.ky = cP.ky + D_ky
-        #cP.DK = np.sqrt(cP.kx**2 + cP.ky**2)
-        #cP.theta = np.arcsin(cP.DK/K + 1/np.sqrt(2))
+        #cP.DK = sqrt(cP.kx**2 + cP.ky**2)
+        #cP.theta = np.arcsin(cP.DK/K + 1/sqrt(2))
         #cP.z = 2*b/(np.tan(cP.theta*pi/180) + 1) - a
         #TODO: calculate new alpha....
         cP.alpha = np.arctan2(cP.ky, cP.kx)*180/pi + 180
