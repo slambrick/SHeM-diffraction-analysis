@@ -16,6 +16,12 @@ A model for the Parallel speed ratio is used from M Bergin 2017:
 
 Data that was used to fit to Bergin's model is from Toennies & Winkelman :
     http://doi.org/10.1063/1.434448
+
+SHeM (design for Cambridge A-SHeM):
+    http://doi.org/10.1016/j.nimb.2014.06.028
+
+2D diffraction with SHeM:
+    http://doi.org/coming_soon!
 """
 
 import numpy as np
@@ -30,6 +36,7 @@ import os
 from scipy import interpolate as interp
 import pandas as pd
 import copy
+import warnings
 
 # Constants for the wavevector magnitude
 m_u = 1.6605e-27 # kg
@@ -203,10 +210,24 @@ def load_z_scans_ashem(files_ind, path_name, z_zero = 3.41e6):
     return({'zs' : zs*1e-6, 'I' : data.transpose(), 'example_pos' : example_pos})
 
 
-def load_z_scans_txt(files_ind, path_name, z_zero):
-    """Reads in z scans for the A-SHeM where data has been saves in text files
-    rather than in .mat files."""
-    # TODO: read in ashem data from text files
+def load_z_scan_ashem_txt(fname, z_zero):
+    """Reads in a single z scan for the A-SHeM where data has been saves in
+    text files rather than in .mat files. Only loads a limited amount of
+    metadata."""
+    fid = open(fname)
+    lines = fid.readlines()
+    ind = 0
+    example_position = np.zeros(3)
+    for i, l in enumerate(lines):
+        if l[0:15] == "Example position":
+            l2 = l.rstrip().split(':')[1].split(',')
+            for j in range(3):
+                example_position[j] = float(l2[j])
+        if l[0:3] == "Data":
+            ind = i+1
+    fid.close()
+    df = pd.read_csv(fname, skiprows=ind)
+    return(example_position, df['z(nm)'], df['I(A)'])
 
 
 def load_z_scans_bshem(files_ind, path_name, z_zero=2.5e9, detector = 1):
@@ -258,6 +279,10 @@ def add_scale(ax, label, x_offset=0.08):
     scale_ax.set_ylabel(label)
     return(scale_ax)
 
+def fit_single_peak():
+    """Fits a 2D gaussian (+ background) to a diffraction peak."""
+    return(0)
+
 
 class SpotProfile:
     '''This class contains results on a spot profile SHeM measurement (currently
@@ -270,6 +295,8 @@ class SpotProfile:
         self.theta = theta_of_z(z, plate, WD) # Polar detection angle, matrix
         self.alpha_rotator = alpha_rotator# Rotator stage angle, matrix
         self.alpha = np.array([])         # azimuthal angle orientated with the crystal, matrix
+        self.alpha_step = abs(alpha_rotator[0,0] - alpha_rotator[0, 1]) 
+                    # Step in alpha, this is assumed to be constant across the scan
         self.signal = I                   # Signal levels, matrix
         self.kz = np.array([])            # wavevector z values
         self.DK = np.array([])            # parallel momentum transfer
@@ -280,6 +307,7 @@ class SpotProfile:
         self.example_positions = np.array([])
                     # A list of all the example positions used for the z
                     # scans.
+        self.incident_angle = 45       # The incidence angle in degrees, defaults to 45deg for A-SHeM
         self.alpha_zero = 0            # The value of alpha of one of the principle azimuths (for alignment)
         self.T = 300                   # Effective temperature in K (equivalent to pure beam)
         self.E = energy_from_T(self.T) # meV
@@ -304,8 +332,28 @@ class SpotProfile:
         sP.T = T
         sP.example_alpha = 300
         sP.set_alpha_zero(alpha_zero)
-        sP.calc_dK(incident_angle = 45)
+        sP.incident_angle = 45
+        sP.calc_dK()
         return(sP)
+    
+    @classmethod
+    def import_ashem_txt(cls, fname, dpath, alpha_zero=0):
+        """Loads an expreimental spot profile from the text file data format."""
+        # TODO: first load in from the meta 2d diffraction file the file names 
+        # and the alpha values
+        
+        # TODO: Loop through each z scan file and load in the actual data
+        #for f in file_ind:
+        #    example_pos, z, I = load_z_scan_ashem_txt(dpath)
+        
+        # TODO: create the object
+        #sP = cls(z = zs, alpha_rotator = alphas, I = data['I'], plate = "C06")
+
+        # The example image the spot was defined from was at 300deg
+        #sP.T = T
+        #sP.example_alpha = 300
+        #sP.set_alpha_zero(alpha_zero)
+        #sP.calc_dK()
     
     
     @classmethod
@@ -325,7 +373,8 @@ class SpotProfile:
         sP.T = T
         sP.example_alpha = 300
         sP.set_alpha_zero(alpha_zero)
-        sP.calc_dK(incident_angle = 30)
+        sP.incident_angle = 30
+        sP.calc_dK()
         return(sP)
 
     @classmethod
@@ -371,13 +420,25 @@ class SpotProfile:
         sP.T = T
         sP.example_alpha = np.nan
         sP.set_alpha_zero(0)
+        sP.incident_angle = 45
         sP.calc_dK()
         return(sP)
     
+    @classmethod
+    def import_previous(cls, fname):
+        """Imports the diffraction data from a previously saved diffraction 
+        data set - saved by save_to_text."""
+        # TODO: write this
+    
+    def get_alpha_range(self):
+        alphas = self.alpha[1,:]
+        alpha_range = np.max(alphas) - np.min(alphas)
+        return(alpha_range)
+        
     def save_to_text(self, fname):
         """Saves the object to a text file for further analysis or saving for
         later without import from the raw z scans."""
-        # TODO: write this 
+        # TODO: write this
     
     def select_by_var(self, var, value):
         """Select a line scan of the data according to a specific value of one
@@ -397,6 +458,69 @@ class SpotProfile:
         df =  pd.DataFrame({'z' : z, 'theta' : theta, 'DK' : DK, 'signal' : I, 'alpha': alpha})
         df.drop(var, axis=1, inplace=True)
         return((df, chosen))
+    
+    def wrap_around(self, symmetry, crop = "end"):
+        """Wraps a data set around the full 360deg, i.e. to make a 360deg plot
+        of an incomplete data set, e.g. a 90deg data set. Returns the data
+        as a new object.
+        Be aware that this method assumes that the step size in alpha is a
+        factor of the symmetry factor, e.g. 1, 1.25, 2.5, 5, 7.5, 10deg 
+        in 60deg or 90deg symmetry.
+        """
+        # TODO: this
+        alpha_range = self.get_alpha_range()
+        if (alpha_range < 60 and symmetry == 60) or (alpha_range < 90 and symmetry == 90):
+            raise Exception("I don't think you have enough data to do this.")
+        elif symmetry != 60 and symmetry != 90:
+            warnings.warn("Untested symmetry, results unpredictable")
+        
+        # TODO: enable arbitrary cropping
+        if crop == "end":
+            crop = np.shape(self.alpha)[1] - int(symmetry/self.alpha_step) - 1
+            ind = self.alpha_rotator <= symmetry
+        elif crop == "start":
+            crop = 0
+            ind = self.alpha_rotator >= np.max(self.alpha_rotator) - symmetry
+        elif isinstance(crop, (int, float)):
+            # In this case the index of alpha to start at is chosen
+            if crop < 0 or crop > int((np.max(self.alpha_rotator) - symmetry)/self.alpha_step):
+                raise ValueError("Index to start at is not valid")
+        else:
+            raise ValueError("Can only crop data for wrapping around at the" +
+                             " 'start', 'end' or an index to start at.")
+        
+        # Sectors of the plot that match to the part of the plot we will repeat
+        stop_crop = crop + int(symmetry/self.alpha_step)+1
+        alpha1 = self.alpha[:,crop:stop_crop]
+        z1 = self.z[:,crop:stop_crop]
+        I1 = self.signal[:,crop:stop_crop]
+        n_rep = np.ceil(360/symmetry)
+        
+        alpha2 = alpha1[:,:-1]
+        z2 = z1[:,:-1]
+        I2 = I1[:,:-1]
+        for i in range(1, int(n_rep)):
+            if i < 10 + max(range(1, int(n_rep))):
+                # Miss the first element on all but the last step
+                alpha2 = np.concatenate([alpha2, alpha1[:,:-1] + i*(symmetry)], 1)
+                z2 = np.concatenate([z2, z1[:,:-1]], 1)
+                I2 = np.concatenate([I2, I1[:,:-1]], 1)
+            else:
+                alpha2 = np.concatenate([alpha2, alpha1 + i*(symmetry)], 1)
+                z2 = np.concatenate([z2, z1], 1)
+                I2 = np.concatenate([I2, I1], 1)
+        wrapped = SpotProfile(z2, alpha2, I2)
+        wrapped.T = self.T
+        wrapped.set_alpha_zero(self.alpha_zero)
+        wrapped.example_alpha = self.example_alpha
+        wrapped.example_positions = self.example_positions.copy()
+        wrapped.calc_dK()
+        return(wrapped)
+    
+    def crop_alpha(self, alpha_min, alpha_max):
+        """Crops the data according to a specified range of alpha values.
+        Returns the data as a new object?"""
+        # TODO: this
 
     def select_alpha(self, alpha):
         df, chosen_alpha = self.select_by_var('alpha', alpha)
@@ -467,17 +591,17 @@ class SpotProfile:
         ax.set_title('$\\alpha$ scan at z={}mm'.format(z))
         return(f, ax, df)
     
-    def calc_dK(self, incident_angle = 45):
+    def calc_dK(self):
         '''Calculates the momentum transer for the data file and the
         "psuedo" kx, ky that we have defined. If a non '''
         K = 2*pi*sqrt(2*m_He*self.E)/h # m^-1
         #K = k*np.sin(incident_angle*pi/180) 
         #K = 2*pi*sqrt(5*m_He*k_B*self.T)/h; # m^-1
         # Calculates the parallel momentum transfer in nm^-1
-        self.DK = K*(np.sin(self.theta*pi/180) - np.sin(incident_angle*pi/180) )/1e9;
+        self.DK = K*(np.sin(self.theta*pi/180) - np.sin(self.incident_angle*pi/180) )/1e9;
         # Calculate the projected k values
-        self.kx = -K*( (np.sin(self.theta*pi/180) - np.sin(incident_angle*pi/180) )*np.cos(self.alpha*pi/180) )/1e9;
-        self.ky = -K*(np.sin(self.theta*pi/180) - np.sin(incident_angle*pi/180) )*np.sin(self.alpha*pi/180)/1e9;
+        self.kx = -K*( (np.sin(self.theta*pi/180) - np.sin(self.incident_angle*pi/180) )*np.cos(self.alpha*pi/180) )/1e9;
+        self.ky = -K*(np.sin(self.theta*pi/180) - np.sin(self.incident_angle*pi/180) )*np.sin(self.alpha*pi/180)/1e9;
     
 
     def set_alpha_zero(self, alpha_zero=0):
@@ -528,7 +652,7 @@ class SpotProfile:
         # The main plot, mask any nan (e.g. values that have been masked out)
         Z = np.log10(sP.signal) if logplot else sP.signal
         mesh1 = ax1.pcolormesh(sP.alpha*pi/180, getattr(sP, var), Z, 
-                               edgecolors='face', cmap = colourmap,  rasterized=rasterized)
+                               edgecolors='face', cmap = colourmap, rasterized=rasterized)
         # Thicker axis lines
         ax1.spines[:].set_linewidth(1.5)
         ax1.set_xlabel('$\\alpha$')
@@ -556,11 +680,12 @@ class SpotProfile:
     
     def shem_raw_plot(self, colourmap = cm.viridis,  bar_location='right',
                       figsize=[8,6], rasterized=True, x_offset = 0.08,
-                      logplot=True):
+                      logplot=True, z_max=7):
         fig, ax1, ax2 = self.shem_polar_plot('z', colourmap=colourmap, bar_location=bar_location, 
                                              figsize=figsize, rasterized=rasterized, DK_invert=True,
                                              logplot=logplot)
         ax1.set_yticks([0, 1, 2, 3, 4, 5, 6])
+        ax1.set_ylim(0, z_max)
         ax1.tick_params(axis='y', colors=[0.9,0.9,0.9])
         add_scale(ax1, label = 'z/mm', x_offset = x_offset)
         return(fig, ax1, ax2)
@@ -636,3 +761,9 @@ class SpotProfile:
         cP.DK = cP.ky/np.sin(cP.alpha*pi/180)
         cP.alpha = cP.alpha - 180
         return(cP)
+    
+    def identify_peaks(self, interpolation_method="linear"):
+        """Identifies initial guesses of the diffraction peak locations in the
+        data set. By default plots these on an interpolated plot."""
+        # TODO: do this, perhaps using 
+        return(0)
