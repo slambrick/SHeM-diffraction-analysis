@@ -3,19 +3,15 @@
 """
 Created on Sat Oct 15 09:51:59 2022
 
-@author: Sam Lambrick 2022-23
+@author: Sam Lambrick 2022-23  
 @contributions: Ke Wang 2022-23
 
 A module for importing, analysing, and plotting SHeM spot profile data.
 
-The 2D Gaussian function is based on this StackOverflow post:
-    https://stackoverflow.com/questions/21566379/fitting-a-2d-gaussian-function-using-scipy-optimize-curve-fit-valueerror-and-m
+The 2D Gaussian function is based on [this StackOverflow post](https://stackoverflow.com/questions/21566379/fitting-a-2d-gaussian-function-using-scipy-optimize-curve-fit-valueerror-and-m).
 
-A model for the Parallel speed ratio is used from M Bergin 2017:
-    http://doi.org/10.1016/j.ultramic.2019.112833
-
-Data that was used to fit to Bergin's model is from Toennies & Winkelman :
-    http://doi.org/10.1063/1.434448
+A model for the Parallel speed ratio is used from [M Bergin 2017](http://doi.org/10.1016/j.ultramic.2019.112833).
+and the data that was used to fit to Bergin's model is from [Toennies & Winkelman](http://doi.org/10.1063/1.434448).
 
 SHeM (design for Cambridge A-SHeM):
     http://doi.org/10.1016/j.nimb.2014.06.028
@@ -28,26 +24,41 @@ import numpy as np
 from numpy import sqrt
 from numpy import pi
 import scipy.io
+from scipy import interpolate as interp
 import matplotlib.pyplot as plt
 from matplotlib import cm # Colour palettes
-import matplotlib.gridspec as gridspec
+#import matplotlib.gridspec as gridspec
 import matplotlib.patches as patches
-import os
-from scipy import interpolate as interp
 import pandas as pd
+import os
 import copy
 import warnings
 
 # Constants for the wavevector magnitude
 m_u = 1.6605e-27 # kg
+"""The atomic mass unit in kg."""
 m_He = 4*m_u;    # kg
+"""The mass of a helium-4 atom in kg."""
 k_B = 1.380649e-23 # JK^-1
+"""The Boltzmann constant in JK<sup>-1<\sup>"""
 h = 6.62607015e-34 # Js
+"""The Planck constant in Js."""
 
         
 def energy_from_T(T):
     """Calculates incident helium energy in J from the beam temperature  - 
-    assumes a pure beam."""
+    assumes a pure beam.
+
+    Parameters
+    ----------
+    T : float, int
+        The beam temperature in K.
+
+    Returns
+    -------
+    E: float
+        The average energy of helium atoms in the beam, in J.
+    """
     E = 5*k_B*T/2 # J
     return(E)
 
@@ -55,22 +66,43 @@ def energy_from_T(T):
 def effective_T(E):
     """Calculates the 'effective temperature' for the beam, that is the
     equivalent temperature for a pure helium beam with this energy. Accepts
-    energy in meV."""
+    energy in meV.
+
+    Parameters
+    ----------
+    E : float, int
+        The average energy of helium atoms in a beam, in J.
+
+    Returns
+    -------
+    T: float
+        The temperature a pure helium beam would have to be at to give the
+        atoms in the beam an energy of `E`. In units of K.
+    """
     E = E*1.6e-19/1000
     T = 2*E/(5*k_B)
     return(T)
 
 
 def speed_ratio(P_0, d_noz):
-    """Calculates the parallel speed ratio, S, for the specified nozzle
+    """Calculates the parallel speed ratio for the specified nozzle
     pressure and diameter for a helium beam based on an emprical fit.
     
-    The fit is from M.Bergin 2018: doi.org/10.1016/j.ultramic.2019.112833
-    and is to data/simulation from Toennies & Winkelman doi.org/10.1063/1.434448.
+    The fit is from [M.Bergin 2018](http://doi.org/10.1016/j.ultramic.2019.112833)
+    and is to data/simulation from [Toennies & Winkelman](http://doi.org/10.1063/1.434448).
     
-    Inputs:
-        P_0 - nozzle pressure in torr
-        d_noz - noxxle diameter in cm
+
+    Parameters
+    ----------
+    P_0 : float, int
+        Pressure of the beam, specified in torr.
+    d_noz : float, int
+        Diameter of the nozzle, specified in cm.
+
+    Returns
+    -------
+    sR : float
+        The predicted terminal, parallel speed ratio.
     """
     a = 0.43
     b = 0.76
@@ -78,7 +110,8 @@ def speed_ratio(P_0, d_noz):
     d = 5.2
     mu = 1.97
     lS = a*np.log10(P_0*d_noz) + b + c/(1 + np.exp(-d*(np.log10(P_0*d_noz) - mu)))
-    return(10**(lS))
+    sR = 10**lS
+    return(sR)
 
 
 def morse_V(z, x, y, params=(8.03, 1.35, 1.08, 0.102, 4)):
@@ -154,25 +187,35 @@ def theta_of_z(z, plate="C06", WD=2):
 
 
 def load_z_scans(files, z_zero = 3.41e6, instrument = 'ashem'):
-    '''Loads a series of z scans taken at different aximulath orientations. The
+    """Loads a series of z scans taken at different aximulath orientations. The
     orientations need to provied seperatly as they are not stored in the data
     files. This file is written specifically for the Cambridge A-SHeM data 
     taken between 2020-23.
     
-    The value of the z zero position should be given in um.
+
+    Parameters
+    ----------
+    files : array_like of str
+        The files that store the z scan data.
+    z_zero : float, int, optional
+        The "z zero": the value of z in stage coordinates that corresponds to 
+        a distance of 0 from the pinhole plate. The default is 3.41e6.
+    instrument : str, optional
+        Which instrument? "ashem" or "bshem". The default is 'ashem'.
+
+    Returns
+    -------
+    zs: numpy.ndarray
+        The z values, in mm, for these z scans.
+    meas: dict
     
-    Inputs:
-        files_ind - list-like of file index number of the Z scans
-        path_name - path to the data files
-        z_sero - the z=0 value (in stage coordinates, so nm for A-SHeM) of the
-                 z stage. The default value is for A-SHeM measurements of LiF
-                 taken in the Autumn of 2020.
-    
-    Note the contents of a Z-scan file for A-SHeM:
-        z_positions, inputs, detector_mode, N_dwell, sampling_period, date_time
-        det_params, p1, p2, p3, p_srce, p_diff, p_smpl, p_det, pause
-        rotation_angle, counts, errors, finish_time, scan_time
-    '''
+    example_pos: numpy.ndarray 
+
+    Note the contents of a Z-scan file for A-SHeM:  
+        `z_positions`, `inputs`, `detector_mode`, `N_dwell`, `sampling_period`, `date_time`
+        `det_params`, `p1`, `p2`, `p3`, `p_srce`, `p_diff`, `p_smpl`, `p_det`, `pause`
+        `rotation_angle`, `counts`, `errors`, `finish_time`, `scan_time`
+    """
    
     # Import the meas structure
     meas = scipy.io.loadmat(files[0])['meas']
@@ -592,8 +635,16 @@ class SpotProfile:
         return(f, ax, df)
     
     def calc_dK(self):
-        '''Calculates the momentum transer for the data file and the
-        "psuedo" kx, ky that we have defined. If a non '''
+        """Calculates the in plane momentum transfer for the data file and the
+        projected in plane momentum transfer (psuedo) k<sub>x</sub>, 
+        k<sub>y</sub>. Values are calculated in nm<sup>-1</sup>.
+        
+
+        Returns
+        -------
+        None.
+
+        """
         K = 2*pi*sqrt(2*m_He*self.E)/h # m^-1
         #K = k*np.sin(incident_angle*pi/180) 
         #K = 2*pi*sqrt(5*m_He*k_B*self.T)/h; # m^-1
@@ -605,14 +656,55 @@ class SpotProfile:
     
 
     def set_alpha_zero(self, alpha_zero=0):
-        '''Sets the correct 0 for the azimuthal angle such that 0 lies along
-        one of the principle azimuths: alpha_zero in degrees.'''
+        """Sets the correct 0 for the azimuthal angle such that 0 lies along
+        one of the principle azimuths. 
+        
+        You will probably want to plot the data first to identify a principle
+        azimuth, then you can set the `alpha_zero`.
+        
+
+        Parameters
+        ----------
+        alpha_zero : int, float, optional
+            The value of alpha that is to be set to be 0. The default is 0.
+
+        Returns
+        -------
+        None.
+
+        """
         self.alpha = self.alpha_rotator - alpha_zero
         self.alpha_zero = alpha_zero
         
     
     def shem_cartesian_plot(self, var, colourmap = cm.viridis,
                             figsize = [6,4], rasterized = True):
+        """Plots the 2D diffraction pattern on Cartesian coordinates with alpha
+        on the x axis and the specified variable on the y axis.
+        
+
+        Parameters
+        ----------
+        var : str
+            The name of the variable to plot on the y-axis, e.g. .
+        colourmap : matplotlib.colors.ListedColormap, optional
+            The colormap to use in the plot. The default is cm.viridis.
+        figsize : array_like, optional
+            Figure size in inches. The default is [6,4].
+        rasterized : bool, optional
+            Should rasterized be used when creating the plot, False will
+            increase the resource use. The default is True.
+
+        Returns
+        -------
+        fig: matplotlib.figure.Figure
+            Matplotlib figure object for the plot
+        ax1: matplotlib.axes._axes.Axes
+            Matplotlib axis object for the plot
+        mesh1: matplotlib.collections.QuadMesh
+            Matplotlib mesh object returned from `pcolorplot`.
+        """
+        
         fig, ax1 = plt.subplots()
         fig.set_size_inches(figsize[0], figsize[1])
         Z = np.log10(self.signal)
@@ -762,8 +854,9 @@ class SpotProfile:
         cP.alpha = cP.alpha - 180
         return(cP)
     
-    def identify_peaks(self, interpolation_method="linear"):
+    def identify_peaks(self, interpolation_method="nearest"):
         """Identifies initial guesses of the diffraction peak locations in the
         data set. By default plots these on an interpolated plot."""
         # TODO: do this, perhaps using 
+        I, kx, ky = self.grid_interpolate((-80, 80), (-80,80), N=101)
         return(0)
