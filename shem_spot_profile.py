@@ -28,6 +28,7 @@ from numpy import pi
 import scipy.io
 from scipy import interpolate as interp
 from scipy.optimize import curve_fit
+from scipy.ndimage import gaussian_filter
 import matplotlib.pyplot as plt
 from matplotlib import cm # Colour palettes
 #import matplotlib.gridspec as gridspec
@@ -400,9 +401,37 @@ def add_scale(ax, label, x_offset=0.08):
     scale_ax.set_ylabel(label)
     return(scale_ax)
 
-def find_diff_peak(data, kx, ky, plotit=False, i=np.nan):
-    """Try to fit a 2D gaussian to the diffraction peak"""
+def find_diff_peak(data, kx, ky, plotit=False, saveit=False, i=np.nan):
+    """Try to fit a 2D Gaussian and polynomial background to a diffraction
+    peak.
     
+    The Gaussian function is specifried in `twoD_Gaussian` and is a Gaussian
+    in both x and y plus a rotation angle. In addition a 2nd order polynomial 
+    background is used.
+
+    Parameters
+    ----------
+    data : SpotProfile
+        A `SpotProfile` object contatining the diffraction data.
+    kx : float
+        Initial guess of the location of the peak along the k<sub>x<\sub> axis.
+    ky : float
+        Initial guess of the location of the peak along the k<sub>y<\sub> axis.
+    plotit : bool, optional
+        Should the fit be plotted. The default is False.
+    saveit : bool, optional
+        Should the figure be saved to a file, will save to a subdirectory
+        "all_fits". Ignored unless `plotit` is set. The default is False.
+    i : int, optional
+        Index for which to save the fitted file ignored unless `saveit` is set.
+        The default is np.nan.
+
+    Returns
+    -------
+    popt: scipy fitting
+        The fitted parameters.
+
+    """
     # The grid to be used for fitting, we isolate a single peak
     # to make the fitting easier
     I, kxx, kyy = data.grid_interpolate(kx = (kx-8, kx+8), 
@@ -413,7 +442,8 @@ def find_diff_peak(data, kx, ky, plotit=False, i=np.nan):
         ax1, ax2 = axs[0]
         ax3, ax4 = axs[1]
         # Identify a single diffraction peak
-        data.interpolated_plot(kx = (kx-8, kx+8), ky = (ky-8, ky+8), N = 101, method = 'nearest', ax=axs[0,0])
+        data.interpolated_plot(kx = (kx-8, kx+8), ky = (ky-8, ky+8), N = 101, 
+                               method = 'nearest', ax=axs[0,0], limiting_circle=False)
     # Initial guess for the height is the range
     height = np.max(I) - np.min(I)
     # Initial guess for the offset is the minimum
@@ -455,8 +485,25 @@ def find_diff_peak(data, kx, ky, plotit=False, i=np.nan):
         axs[0,1].set_xlabel('$k_x/\mathrm{nm}^{-1}$')
         axs[0,1].set_ylabel('$k_y/\mathrm{nm}^{-1}$')
         axs[0,1].set_title('Total fit')
-        plt.savefig('all_fits/peak_fitted{:03d}.png'.format(i))
+        if saveit:
+            plt.savefig('all_fits/peak_fitted{:03d}.png'.format(i))
     return(popt)
+
+
+def local_maxima(arr):
+    """This is kinda dumb, will find all local maxima in the array"""
+    
+    x_ind = []
+    y_ind = []
+    for i in range(1, np.shape(arr)[0]-1):
+        for j in range(1, np.shape(arr)[1]-1):
+            t = arr[i][j]
+            adjacent = t > arr[i-1][j] and t > arr[i+1][j] and t > arr[i][j-1] and t > arr[i][j+1]
+            diagonal = t > arr[i-1][j-1] and t > arr[i-1][j+1] and t > arr[i+1][j-1] and t > arr[i+1][j+1]
+            if adjacent and diagonal:
+                x_ind.append(i)
+                y_ind.append(j)
+    return(x_ind, y_ind)
 
 
 class SpotProfile:
@@ -1039,3 +1086,29 @@ class SpotProfile:
         # TODO: do this, perhaps using 
         I, kx, ky = self.grid_interpolate((-80, 80), (-80,80), N=101)
         return(0)
+    
+    def find_peaks(self, max_DK=75, plotit=False):
+        # Smooth the data so that identification of peaks is easier
+        I, kx, ky = self.grid_interpolate((-80, 80), (-80, 80), N=201, method="linear")
+        I2 = gaussian_filter(I, 3)
+        
+        if plotit:
+            f, a = plt.subplots()
+            a.pcolormesh(kx, ky, I2)
+            a.set_aspect('equal')
+        
+        # Find all local maxima
+        x, y = local_maxima(I2)
+        kx_points = kx[x,y]
+        ky_points = ky[x,y]
+
+        # Reject those at more than 75nm^-1
+        ind = np.sqrt(kx_points**2 + ky_points**2) < max_DK
+        kx_points = kx_points[ind]
+        ky_points = ky_points[ind]
+        
+        if plotit:            
+            a.plot(kx_points, ky_points, 'o', color='red')
+        
+        return(kx_points, ky_points)
+        
