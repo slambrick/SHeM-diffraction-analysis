@@ -1,3 +1,5 @@
 **/*.mat
 __pycache__
 *.mat
+*.js
+*.ipynb
