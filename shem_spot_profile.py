@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
+# SHeM Diffraction Analysis
+
 Created on Sat Oct 15 09:51:59 2022
 
 @author: Sam Lambrick 2022-23  
@@ -25,6 +27,7 @@ from numpy import sqrt
 from numpy import pi
 import scipy.io
 from scipy import interpolate as interp
+from scipy.optimize import curve_fit
 import matplotlib.pyplot as plt
 from matplotlib import cm # Colour palettes
 #import matplotlib.gridspec as gridspec
@@ -40,7 +43,7 @@ m_u = 1.6605e-27 # kg
 m_He = 4*m_u;    # kg
 """The mass of a helium-4 atom in kg."""
 k_B = 1.380649e-23 # JK^-1
-"""The Boltzmann constant in JK<sup>-1<\sup>"""
+"""The Boltzmann constant in JK<sup>-1</sup>"""
 h = 6.62607015e-34 # Js
 """The Planck constant in Js."""
 
@@ -51,12 +54,12 @@ def energy_from_T(T):
 
     Parameters
     ----------
-    T : float, int
+    T : float, int, numpy.ndarray
         The beam temperature in K.
 
     Returns
     -------
-    E: float
+    E: float, numpy.ndarray
         The average energy of helium atoms in the beam, in J.
     """
     E = 5*k_B*T/2 # J
@@ -70,12 +73,12 @@ def effective_T(E):
 
     Parameters
     ----------
-    E : float, int
+    E : float, int, numpy.ndarray
         The average energy of helium atoms in a beam, in J.
 
     Returns
     -------
-    T: float
+    T: float, numpy.ndarray
         The temperature a pure helium beam would have to be at to give the
         atoms in the beam an energy of `E`. In units of K.
     """
@@ -94,14 +97,14 @@ def speed_ratio(P_0, d_noz):
 
     Parameters
     ----------
-    P_0 : float, int
+    P_0 : float, int, numpy.ndarray
         Pressure of the beam, specified in torr.
-    d_noz : float, int
+    d_noz : float, int, numpy.ndarray
         Diameter of the nozzle, specified in cm.
 
     Returns
     -------
-    sR : float
+    sR : float, numpy.ndarray
         The predicted terminal, parallel speed ratio.
     """
     a = 0.43
@@ -115,15 +118,28 @@ def speed_ratio(P_0, d_noz):
 
 
 def morse_V(z, x, y, params=(8.03, 1.35, 1.08, 0.102, 4)):
-    """Calculates a corrugated Morse potential, from eq. 1.2 & 1.3 Celli et al.
-    1995 https://doi.org/10.1063/1.449297.
+    """Calculates a corrugated Morse potential, from eq. 1.2 & 1.3 [Celli et al.
+    1995](https://doi.org/10.1063/1.449297).
     
-    Inputs:
-        z - height from surface
-        x - lateral x position
-        y - lateral y position
-        params - 5 tuple, potential parameters (D0, alpha, alpha1, h, a)
-    
+    $$ Q(x,y) = h \\left( \cos \dfrac{2\pi x}{a} + \cos \dfrac{2\pi y}{a} \\right)$$
+    $$ V(x, y, z) = D_0 e^{-2 \\alpha [z - Q(x, y)]} - 2 D_0 e^{-\\alpha_1 z} $$
+
+    Parameters
+    ----------
+    z : float, int, numpy.ndarray
+        The height above the surface, in nm.
+    x : float, int, numpy.ndarray
+        x position on the surface, in nm.
+    y : float, int, numpy.ndarray
+        y position on the surface, in nm.
+    params : 5 tupe of float/int, optional
+        Parameters for the Morse potential specified as a 5 element tuple,
+        (D<sub>0</sub>, α, α<sub>1</sub>, h, a). The default is (8.03, 1.35, 1.08, 0.102, 4).
+
+    Returns
+    -------
+    V: float, numpy.ndarray
+        Value of the potential.
     """
     D0, alpha, alpha1, h, a = params
     Q = h*(np.cos(2*pi*x/a) + np.cos(2*pi*y/a))
@@ -132,18 +148,51 @@ def morse_V(z, x, y, params=(8.03, 1.35, 1.08, 0.102, 4)):
 
 
 def twoD_Gaussian(xy, amplitude, xo, yo, sigma_x, sigma_y, theta, f, g, h, k, l, m):
-    '''A two dimensional gaussian function for fitting to diffraction peaks.
+    """A two dimensional gaussian function for fitting to diffraction peaks.
+    The background is defined in the `background` function.
+
+    $$ a = \dfrac{\cos^2 \\theta}{2 \sigma_x^2} + \dfrac{\sin^2 \\theta}{2\sigma_y^2}$$
+    $$ b = -\dfrac{\sin 2 \\theta}{4\sigma_x^2} + \dfrac{\sin 2 \\theta}{4\sigma_y^2}$$
+    $$ c =  \dfrac{\sin^2 \\theta}{2 \sigma_x^2} + \dfrac{\cos^2 \\theta}{2\sigma_y^2}$$
+    $$ I(x, y) = B + A e^{-a(x - x_0)^2 - 2b(x-x_0)(y-y_0) - c(y - y_0)^2}$$
     
-    Inputs:
-        xy - tuple of x & y coordinates
-        amplitude - height of the Gaussian
-        x0 - x coordinate of the centre
-        y0 - y coordinate of the centre
-        sigma_x - x direction standard deviation
-        sigma_y - y direction standard deviation
-        theta - clockwise rotation (rad) of the Gaussian
-        f,g,h,k,l,m - parameters for a 2nd order polynomial background
-    '''
+    Parameters
+    ----------
+    xy : 2 tuple of float, int, numpy.ndarray
+        tuple of x & y coordinates.
+    amplitude : float, int
+        height of the Gaussian.
+    xo : float, int
+        x coordinate of the centre.
+    yo : float, int
+        y coordinate of the centre.
+    sigma_x : float, int
+        x direction standard deviation.
+    sigma_y : float, int
+        y direction standard deviation.
+    theta : float, int
+        clockwise rotation (rad) of the Gaussian.
+    f : float, int
+        1st Coefficient for the background.
+    g : float, int
+        2nd Coefficient for the background.
+    h : float, int
+        3rd Coefficient for the background.
+    k : float, int
+        4th Coefficient for the background.
+    l : float, int
+        5th Coefficient for the background.
+    m : float, int
+        6th Coefficient for the background.
+
+    Returns
+    -------
+    popt : scipy fitting output
+        DESCRIPTION
+    pconv : scipy fitting output
+        DESCRIPTION.
+
+    """
     
     x, y = xy
     xo = float(xo)
@@ -153,11 +202,40 @@ def twoD_Gaussian(xy, amplitude, xo, yo, sigma_x, sigma_y, theta, f, g, h, k, l,
     c = (np.sin(theta)**2)/(2*sigma_x**2) + (np.cos(theta)**2)/(2*sigma_y**2)
     tot = amplitude*np.exp( - (a*((x-xo)**2) + 2*b*(x-xo)*(y-yo) 
                             + c*((y-yo)**2)))
-    tot = tot + f + g*x + h*y + k*x*y + l*x**2 + m*y**2
-    return tot.ravel()
+    tot = tot + background(xy, f, g, h, k, l, m)# f + g*x + h*y + k*x*y + l*x**2 + m*y**2
+    return(tot.ravel())
 
 
 def background(xy, f, g, h, k, l, m):
+    """2nd order 2D polynomial background function.
+    
+    $$ b(x,y) = f + gx + hy + kxy + lx^2 + my^2 $$
+    
+
+    Parameters
+    ----------
+    xy : tuple
+        Tuple of `(x,y)` values, either single numerical values or 
+        numpy.ndarray.
+    f : float, int
+        1st Coefficient for the background..
+    g : float, int
+        2nd Coefficient for the background..
+    h : float, int
+        3rd Coefficient for the background..
+    k : float, int
+        4th Coefficient for the background..
+    l : float, int
+        5th Coefficient for the background..
+    m : float, int
+        6th Coefficient for the background..
+
+    Returns
+    -------
+    b : float, numpy.ndarray
+        Value of the 2nd order polynomial.
+    """
+    
     x, y = xy
     b = f + g*x + h*y + k*x*y + l*x**2 + m*y**2
     return(b)
@@ -322,15 +400,109 @@ def add_scale(ax, label, x_offset=0.08):
     scale_ax.set_ylabel(label)
     return(scale_ax)
 
-def fit_single_peak():
-    """Fits a 2D gaussian (+ background) to a diffraction peak."""
-    return(0)
+def find_diff_peak(data, kx, ky, plotit=False, i=np.nan):
+    """Try to fit a 2D gaussian to the diffraction peak"""
+    
+    # The grid to be used for fitting, we isolate a single peak
+    # to make the fitting easier
+    I, kxx, kyy = data.grid_interpolate(kx = (kx-8, kx+8), 
+                                            ky = (ky-8, ky+8), 
+                                            N=101, method='linear')
+    if plotit:
+        f, axs = plt.subplots(2, 2, figsize=(10, 10))
+        ax1, ax2 = axs[0]
+        ax3, ax4 = axs[1]
+        # Identify a single diffraction peak
+        data.interpolated_plot(kx = (kx-8, kx+8), ky = (ky-8, ky+8), N = 101, method = 'nearest', ax=axs[0,0])
+    # Initial guess for the height is the range
+    height = np.max(I) - np.min(I)
+    # Initial guess for the offset is the minimum
+    offset = np.min(I)
+    # Initial guess for the standard deviations is 3x3
+    # Initial guess for the orinentation is 45deg (this is the most
+    # dodgy one)
+    initial_guess = (height,kx,ky,3,3,-45*np.pi/180,offset, 0, 0, 0, 0, 0)
+    try:
+        popt, pcov = curve_fit(twoD_Gaussian, (kxx, kyy), 
+                                   I.flatten(), p0=initial_guess)
+    except:
+        popt = np.ones(12)*np.nan
+    
+    if plotit:
+        # Add the identified centre to the plot of the raw data
+        axs[0,0].plot(popt[1], popt[2], 'ro')
+
+        # Plot the fitted Gaussian (does it look decent at all?)
+        Gau = twoD_Gaussian((kxx, kyy), popt[0], popt[1], popt[2], popt[3], popt[4], popt[5], 0, 0, 0, 0, 0, 0)
+        axs[1,0].pcolormesh(kxx, kyy, Gau.reshape(101, 101), edgecolors='face')
+        axs[1,0].axis('equal')
+        axs[1,0].set_xlabel('$k_x/\mathrm{nm}^{-1}$')
+        axs[1,0].set_ylabel('$k_y/\mathrm{nm}^{-1}$')
+        axs[1,0].set_title('Fitted Gaussian')
+
+        # Plot the background (does it look decent at all?)
+        Back = background((kxx, kyy), popt[6], popt[7], popt[8], popt[9], popt[10], popt[11])
+        axs[1,1].pcolormesh(kxx, kyy, Back.reshape(101, 101), edgecolors='face')
+        axs[1,1].axis('equal')
+        axs[1,1].set_xlabel('$k_x/\mathrm{nm}^{-1}$')
+        axs[1,1].set_ylabel('$k_y/\mathrm{nm}^{-1}$')
+        axs[1,1].set_title('Fitted Polynomial Background')
+
+        # Plot the background (does it look decent at all?)
+        GauTot = twoD_Gaussian((kxx, kyy), *popt)
+        axs[0,1].pcolormesh(kxx, kyy, GauTot.reshape(101, 101), edgecolors='face')
+        axs[0,1].axis('equal')
+        axs[0,1].set_xlabel('$k_x/\mathrm{nm}^{-1}$')
+        axs[0,1].set_ylabel('$k_y/\mathrm{nm}^{-1}$')
+        axs[0,1].set_title('Total fit')
+        plt.savefig('all_fits/peak_fitted{:03d}.png'.format(i))
+    return(popt)
 
 
 class SpotProfile:
-    '''This class contains results on a spot profile SHeM measurement (currently
+    """Contains results on a spot profile SHeM measurement (currently
     loaded in from a series of z-scans) along with data analysis and plotting
-    functions.'''
+    functions.
+
+    ...
+
+    Attributes
+    ----------
+    z : 2D numpy.ndarray
+        z positions.
+    theta : 2D numpy.ndarray
+        DESCRIPTION.
+    alpha_rotator : 2D numpy.ndarray
+        DESCRIPTION.
+    alpha : 2D numpy.ndarray
+        DESCRIPTION.
+    alpha_step : 2D numpy.ndarray
+        DESCRIPTION.
+    signal : 2D numpy.ndarray
+        DESCRIPTION.
+    kz : 2D numpy.ndarray
+        DESCRIPTION.
+    DK : 2D numpy.ndarray
+        DESCRIPTION.
+    kx : 2D numpy.ndarray
+        DESCRIPTION.
+    ky : 2D numpy.ndarray
+        DESCRIPTION.
+    chosen_pos : 2D numpy.ndarray
+        DESCRIPTION.
+    example_alpha : 2D numpy.ndarray
+        DESCRIPTION.
+    example_positions : 2D numpy.ndarray
+        DESCRIPTION.
+    incident_angle : 2D numpy.ndarray
+        DESCRIPTION.
+    alpha_zero : 2D numpy.ndarray
+        DESCRIPTION.
+    T : 2D numpy.ndarray
+        DESCRIPTION.
+    E : 2D numpy.ndarray
+        DESCRIPTION.
+    """
     
     def __init__(self, z, alpha_rotator, I, plate="C06", WD = 2):
         # TODO: example positions etc. not really being used yet!
@@ -671,6 +843,13 @@ class SpotProfile:
         Returns
         -------
         None.
+        
+        Examples
+        --------
+        Setting the initial value of α = 40deg to be along a principle azimuth
+        for your dataset `my_data`.
+        
+        >>> my_data.set_alpha_zero(alpha_zero=40)
 
         """
         self.alpha = self.alpha_rotator - alpha_zero
