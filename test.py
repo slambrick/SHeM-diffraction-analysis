@@ -32,14 +32,15 @@ popt = ssp.find_diff_peak(mos2_full2, -24.7, -30.6, plotit=True)
 
 # Identify peaks, this uses smoothing of the data through a Gaussian fiter so
 # that there is no noise, and thus peaks are simily local maxima
-kx_points, ky_points = mos2_full2.find_peaks()
+kx_points, ky_points = mos2_full2.find_peaks(plotit=True)
 
 a1.plot(kx_points, ky_points, 'o', color='red', label="Identified")
 
 kx_fitted = []
 ky_fitted = []
 for i in range(len(kx_points)):
-    popt = ssp.find_diff_peak(mos2_full2, kx_points[i], ky_points[i])
+    popt = ssp.find_diff_peak(mos2_full2, kx_points[i], ky_points[i],
+                              interpolation_method = "linear")
     kx_fitted.append(popt[1])
     ky_fitted.append(popt[2])
 

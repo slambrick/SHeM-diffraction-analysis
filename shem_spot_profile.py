@@ -401,7 +401,7 @@ def add_scale(ax, label, x_offset=0.08):
     scale_ax.set_ylabel(label)
     return(scale_ax)
 
-def find_diff_peak(data, kx, ky, plotit=False, saveit=False, i=np.nan):
+def find_diff_peak(data, kx, ky, plotit=False, saveit=False, i=np.nan, interpolation_method='nearest'):
     """Try to fit a 2D Gaussian and polynomial background to a diffraction
     peak.
     
@@ -425,6 +425,8 @@ def find_diff_peak(data, kx, ky, plotit=False, saveit=False, i=np.nan):
     i : int, optional
         Index for which to save the fitted file ignored unless `saveit` is set.
         The default is np.nan.
+    interpolation_method : str, optional
+        The method for interpolating the data. The default is 'nearest'. 
 
     Returns
     -------
@@ -436,7 +438,7 @@ def find_diff_peak(data, kx, ky, plotit=False, saveit=False, i=np.nan):
     # to make the fitting easier
     I, kxx, kyy = data.grid_interpolate(kx = (kx-8, kx+8), 
                                             ky = (ky-8, ky+8), 
-                                            N=101, method='linear')
+                                            N=101, method=interpolation_method)
     if plotit:
         f, axs = plt.subplots(2, 2, figsize=(10, 10))
         ax1, ax2 = axs[0]
