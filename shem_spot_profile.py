@@ -48,6 +48,15 @@ k_B = 1.380649e-23 # JK^-1
 h = 6.62607015e-34 # Js
 """The Planck constant in Js."""
 
+
+def WD_from_plate(plate):
+    if plate == "C06":
+        WD = 2
+    elif plate == "Z07":
+        WD = 3
+    else:
+        raise ValueError("Unknown pinhole plate.")
+    return(WD)
         
 def energy_from_T(T):
     """Calculates incident helium energy in J from the beam temperature  - 
@@ -75,7 +84,7 @@ def effective_T(E):
     Parameters
     ----------
     E : float, int, numpy.ndarray
-        The average energy of helium atoms in a beam, in J.
+        The average energy of helium atoms in a beam, in eV.
 
     Returns
     -------
@@ -308,30 +317,78 @@ def load_z_scans(files, z_zero = 3.41e6, instrument = 'ashem'):
         zs = (meas['z_positions'][0][0] - z_zero) 
     else: 
         raise('Unkown instrument input in load_z_scans') 
+    n_scan = 1
     for j, item in enumerate(meas['inputs'][0][0][0]):
         if isinstance(item[0], str):
             if item[0] == 'example_pos':
                 example_pos = meas['inputs'][0][0][0][j+1][0]
-                break
-
+            elif item[0] == 'example_pos_norm_1':
+                example_pos_norm_1 = meas['inputs'][0][0][0][j+1][0]
+                n_scan = 2
+            elif item[0] == 'example_pos_norm_2':
+                example_pos_norm_2 = meas['inputs'][0][0][0][j+1][0]
+                n_scan = 3
+    if n_scan == 2:
+        example_pos = np.array([example_pos, example_pos_norm_1])
+    elif n_scan == 3:
+        example_pos = np.array([example_pos, example_pos_norm_1, example_pos_norm_2])
     return(zs, meas, example_pos)
 
+# TODO: does this do what it should?
+# def load_z_scans_multi(files, z_zero = 3.41e6, instrument = 'ashem'):
+#     # Import the meas structure
+#     fname = '{}/multiZ{}.mat'.format(path_name,str(files_ind[0]).zfill(6))
+#     meas = scipy.io.loadmat(fname)['meas'][0][0]
 
-def load_z_scans_ashem(files_ind, path_name, z_zero = 3.41e6):
-    ashem_fname = np.vectorize(lambda ind, p : '{}/Z{}.mat'.format(p, str(ind).zfill(6)))
+#     # Note the [0][0] needed to extract the data from the Matlab scruct
+#     data=np.zeros([len(files_ind), len(meas['counts'][:,0])])
+
+#     alphas=np.zeros(len(files_ind))
+    
+#     # Get the z positions (the same for all the data files)
+#     zs = (z_zero - meas['z_positions'])*1e-6
+#     for j, item in enumerate(meas['inputs'][0]):
+#         if isinstance(item[0], str):
+#             if item[0] == 'example_pos':
+#                 example_pos = meas['inputs'][0][j+1][0]
+#                 break
+
+#     # Load in the signals and the example position
+#     for i, ind in enumerate(files_ind):
+#         fname = '{}/multiZ{}.mat'.format(path_name,str(ind).zfill(6))
+#         meas = scipy.io.loadmat(fname)['meas'][0][0]
+#         data[i,:] = meas['counts'][:,0].flatten()*1e9 # Convert to nA from A
+#         #alphas[i] = np.round(meas['rotation_angle'][0]*1e-6,2)
+    
+#     return({'zs' : zs, 'I' : data.transpose(), 'example_pos' : example_pos, 'alphas' : alphas})
+
+def load_z_scans_ashem(files_ind, path_name, z_zero = 3.41e6, multi=True):
+    if multi:
+        ashem_fname = np.vectorize(lambda ind, p : '{}/multiZ{}.mat'.format(p, str(ind).zfill(6)))
+    else:
+        ashem_fname = np.vectorize(lambda ind, p : '{}/Z{}.mat'.format(p, str(ind).zfill(6)))
     files = ashem_fname(files_ind, path_name)
     zs, meas, example_pos = load_z_scans(files, z_zero = z_zero, instrument = 'ashem')
     # Load in the data
-    # Note the [0][0] needed to extract the data from the Matlab scruct
-    data = np.zeros([len(files_ind), len(meas['counts'][0][0])])
+    # Note the [0][0] needed to extract the data from the Matlab struct
+    n_scan = np.shape(example_pos)[0]
+    data = []
+    alphas = np.zeros(len(files_ind))
+    for i in range(n_scan):
+        data.append(np.zeros([len(files_ind), len(zs)]))
     for i, f in enumerate(files):
         meas = scipy.io.loadmat(f)['meas']
-        data[i,:] = meas['counts'][0][0].flatten()*1e9 # Convert to nA from A
+        alphas[i] = round(meas['rotation_angle'][0][0][0][0]*1e-6, 3)
+        for j in range(n_scan):
+            data[j][i,:] = meas['counts'][0][0][:,j].flatten()*1e9 # Convert to nA from A
+    for i in range(n_scan):
+        data[i] = data[i].transpose() # Why!!?
     
     # A-SHeM uses nm
-    return({'zs' : zs*1e-6, 'I' : data.transpose(), 'example_pos' : example_pos})
+    return({'zs' : zs*1e-6, 'I' : data, 'example_pos' : example_pos, 'alphas' : alphas})
 
 
+# TODO: enable for multiple scans
 def load_z_scan_ashem_txt(fname, z_zero):
     """Reads in a single z scan for the A-SHeM where data has been saves in
     text files rather than in .mat files. Only loads a limited amount of
@@ -512,48 +569,11 @@ class SpotProfile:
     """Contains results on a spot profile SHeM measurement (currently
     loaded in from a series of z-scans) along with data analysis and plotting
     functions.
-
-    ...
-
-    Attributes
-    ----------
-    z : 2D numpy.ndarray
-        z positions.
-    theta : 2D numpy.ndarray
-        DESCRIPTION.
-    alpha_rotator : 2D numpy.ndarray
-        DESCRIPTION.
-    alpha : 2D numpy.ndarray
-        DESCRIPTION.
-    alpha_step : 2D numpy.ndarray
-        DESCRIPTION.
-    signal : 2D numpy.ndarray
-        DESCRIPTION.
-    kz : 2D numpy.ndarray
-        DESCRIPTION.
-    DK : 2D numpy.ndarray
-        DESCRIPTION.
-    kx : 2D numpy.ndarray
-        DESCRIPTION.
-    ky : 2D numpy.ndarray
-        DESCRIPTION.
-    chosen_pos : 2D numpy.ndarray
-        DESCRIPTION.
-    example_alpha : 2D numpy.ndarray
-        DESCRIPTION.
-    example_positions : 2D numpy.ndarray
-        DESCRIPTION.
-    incident_angle : 2D numpy.ndarray
-        DESCRIPTION.
-    alpha_zero : 2D numpy.ndarray
-        DESCRIPTION.
-    T : 2D numpy.ndarray
-        DESCRIPTION.
-    E : 2D numpy.ndarray
-        DESCRIPTION.
     """
     
-    def __init__(self, z, alpha_rotator, I, plate="C06", WD = 2):
+    def __init__(self, z, alpha_rotator, I, plate="C06", WD = 2, incident_angle=45, n_scan = 1):
+        if plate != "standard":
+            WD = WD_from_plate(plate)
         # TODO: example positions etc. not really being used yet!
         self.z = z                        # z position, matrix
         self.theta = theta_of_z(z, plate, WD) # Polar detection angle, matrix
@@ -571,26 +591,32 @@ class SpotProfile:
         self.example_positions = np.array([])
                     # A list of all the example positions used for the z
                     # scans.
-        self.incident_angle = 45       # The incidence angle in degrees, defaults to 45deg for A-SHeM
+        self.incident_angle = incident_angle # The incidence angle in degrees, defaults to 45deg for A-SHeM
         self.alpha_zero = 0            # The value of alpha of one of the principle azimuths (for alignment)
         self.T = 300                   # Effective temperature in K (equivalent to pure beam)
         self.E = energy_from_T(self.T) # meV
+        self.plate = plate             # Which pinhole plate was used for the reconsturction
+        self.n_scan = n_scan           # The number of scans taken (e.g. 3 points on the surface)
     
     @classmethod
-    def import_ashem(cls, file_ind, dpath, alphas, T=298, alpha_zero=0, z_zero = 3.41e6):
+    def import_ashem(cls, file_ind, dpath, alphas=None, T = 298, alpha_zero=0, 
+                     z_zero = 3.41e6):
         '''Loads an experimental spot profile from a series of z scan data
         files.'''
         
+        if type(file_ind) == int:
+            file_ind = [file_ind]
         # Load the data
         data = load_z_scans_ashem(file_ind, dpath, z_zero = z_zero)
         
         # Number of rows (z values)
         # and columns (alpha values)
-        r, c = data['I'].shape
-        alphas = np.repeat(np.resize(alphas, [1, c]), r, axis=0)
+        n_scan = len(data['I'])
+        r, c = data['I'][0].shape
+        alphas = np.repeat(np.resize(data['alphas'], [1, c]), r, axis=0)
         zs = np.repeat(data['zs'], c, axis=1)
         #alphas = np.repeat(np.resize(alphas, [1, c]), r, axis=0)
-        sP = cls(z = zs, alpha_rotator = alphas, I = data['I'], plate = "C06")
+        sP = cls(z = zs, alpha_rotator = alphas, I = data['I'], plate = "C06", n_scan = n_scan)
         
         # The example image the spot was defined from was at 300deg
         sP.T = T
@@ -599,6 +625,7 @@ class SpotProfile:
         sP.incident_angle = 45
         sP.calc_dK()
         return(sP)
+    
     
     @classmethod
     def import_ashem_txt(cls, fname, dpath, alpha_zero=0):
@@ -704,7 +731,7 @@ class SpotProfile:
         later without import from the raw z scans."""
         # TODO: write this
     
-    def select_by_var(self, var, value):
+    def select_by_var(self, var, value, scan = 0):
         """Select a line scan of the data according to a specific value of one
         of the parameters, if the exact value is not found the closest value is
         used."""
@@ -717,19 +744,18 @@ class SpotProfile:
         z = self.z[ind]
         theta = self.theta[ind]
         DK = self.DK[ind]
-        I = self.signal[ind]
+        I = self.signal[scan][ind]
         alpha = self.alpha[ind]
         df =  pd.DataFrame({'z' : z, 'theta' : theta, 'DK' : DK, 'signal' : I, 'alpha': alpha})
         df.drop(var, axis=1, inplace=True)
         return((df, chosen))
     
-    def wrap_around(self, symmetry, crop = "end"):
+    def wrap_around(self, symmetry, crop = "end", scan = 0):
         """Wraps a data set around the full 360deg, i.e. to make a 360deg plot
         of an incomplete data set, e.g. a 90deg data set. Returns the data
         as a new object.
         Be aware that this method assumes that the step size in alpha is a
         factor of the symmetry factor, e.g. 1, 1.25, 2.5, 5, 7.5, 10deg 
-        in 60deg or 90deg symmetry.
         """
         # TODO: this
         alpha_range = self.get_alpha_range()
@@ -757,7 +783,7 @@ class SpotProfile:
         stop_crop = crop + int(symmetry/self.alpha_step)+1
         alpha1 = self.alpha[:,crop:stop_crop]
         z1 = self.z[:,crop:stop_crop]
-        I1 = self.signal[:,crop:stop_crop]
+        I1 = self.signal[scan][:,crop:stop_crop]
         n_rep = np.ceil(360/symmetry)
         
         alpha2 = alpha1[:,:-1]
@@ -773,7 +799,7 @@ class SpotProfile:
                 alpha2 = np.concatenate([alpha2, alpha1 + i*(symmetry)], 1)
                 z2 = np.concatenate([z2, z1], 1)
                 I2 = np.concatenate([I2, I1], 1)
-        wrapped = SpotProfile(z2, alpha2, I2)
+        wrapped = SpotProfile(z2, alpha2, I2, plate=self.plate, incident_angle=self.incident_angle)
         wrapped.T = self.T
         wrapped.set_alpha_zero(self.alpha_zero)
         wrapped.example_alpha = self.example_alpha
@@ -906,7 +932,7 @@ class SpotProfile:
         
     
     def shem_cartesian_plot(self, var, colourmap = cm.viridis,
-                            figsize = [6,4], rasterized = True):
+                            figsize = [6,4], rasterized = True, scan = 0):
         """Plots the 2D diffraction pattern on Cartesian coordinates with alpha
         on the x axis and the specified variable on the y axis.
         
@@ -935,7 +961,7 @@ class SpotProfile:
         
         fig, ax1 = plt.subplots()
         fig.set_size_inches(figsize[0], figsize[1])
-        Z = np.log10(self.signal)
+        Z = np.log10(self.signal[scan])
         mesh1 = ax1.pcolormesh(self.alpha, getattr(self, var), Z,
                                edgecolors='face', cmap = colourmap, rasterized=rasterized)
         ax1.set_xlabel('$\\alpha/^\\circ$')
@@ -946,7 +972,8 @@ class SpotProfile:
         
         
     def shem_polar_plot(self, var, colourmap = cm.viridis, bar_location = 'right', 
-                        figsize = [8,6], rasterized = True, DK_invert=True, logplot=True):
+                        figsize = [8,6], rasterized = True, DK_invert=True, logplot=True,
+                        scan=0, **kwargs):
         if var == 'DK':
             # If we plot data with -DK we invert it
             if DK_invert:
@@ -970,9 +997,10 @@ class SpotProfile:
         else:
             raise ValueError('Unknown colorbar location.')
         # The main plot, mask any nan (e.g. values that have been masked out)
-        Z = np.log10(sP.signal) if logplot else sP.signal
+        Z = np.log10(sP.signal[scan]) if logplot else sP.signal[scan]
         mesh1 = ax1.pcolormesh(sP.alpha*pi/180, getattr(sP, var), Z, 
-                               edgecolors='face', cmap = colourmap, rasterized=rasterized)
+                               edgecolors='face', cmap = colourmap, 
+                               rasterized=rasterized, **kwargs)
         # Thicker axis lines
         ax1.spines[:].set_linewidth(1.5)
         ax1.set_xlabel('$\\alpha$')
@@ -988,10 +1016,11 @@ class SpotProfile:
     
     def shem_diffraction_plot(self, colourmap = cm.viridis, bar_location='right',
                               figsize=[8,6], rasterized=True, DK_invert=True, 
-                              x_offset=0.08, DK_max=85, logplot=True):
+                              x_offset=0.08, DK_max=85, logplot=True, scan=0,
+                              **kwargs):
         fig, ax1, ax2 = self.shem_polar_plot('DK', colourmap=colourmap, bar_location=bar_location, 
                                              figsize=figsize, rasterized=rasterized, DK_invert=DK_invert,
-                                             logplot=logplot)
+                                             logplot=logplot, scan=scan, **kwargs)
         ax1.set_yticks([0, 25, 50, 75])
         ax1.set_ylim(0, DK_max)
         ax1.tick_params(axis='y', colors=[0.9,0.9,0.9])
@@ -1000,10 +1029,10 @@ class SpotProfile:
     
     def shem_raw_plot(self, colourmap = cm.viridis,  bar_location='right',
                       figsize=[8,6], rasterized=True, x_offset = 0.08,
-                      logplot=True, z_max=7):
+                      logplot=True, z_max=7, scan=0, **kwargs):
         fig, ax1, ax2 = self.shem_polar_plot('z', colourmap=colourmap, bar_location=bar_location, 
                                              figsize=figsize, rasterized=rasterized, DK_invert=True,
-                                             logplot=logplot)
+                                             logplot=logplot, scan=scan, **kwargs)
         ax1.set_yticks([0, 1, 2, 3, 4, 5, 6])
         ax1.set_ylim(0, z_max)
         ax1.tick_params(axis='y', colors=[0.9,0.9,0.9])
@@ -1020,16 +1049,17 @@ class SpotProfile:
         else:
             raise ValueError('Do not understand input')
         sP = copy.deepcopy(self)
-        sP.signal[ind] = np.nan#
+        for i in range(self.n_scan):
+            sP.signal[i][ind] = np.nan
         return(sP)
     
-    def grid_interpolate(self, kx, ky, N=101, method='nearest'):
+    def grid_interpolate(self, kx, ky, N=101, method='nearest', scan = 0):
         '''Produces a 2D cartesian grid of the data for the provided kx and ky
         vectors.'''
         kx = np.linspace(kx[0], kx[1], N)
         ky = np.linspace(ky[0], ky[1], N)
         kxx, kyy = np.meshgrid(kx, ky)
-        z = self.signal.ravel()
+        z = self.signal[scan].ravel()
         ind = ~np.isnan(z)
         x=self.kx.ravel()              #Flat input into 1d vector
         x=x[ind]   #eliminate any NaN
@@ -1040,10 +1070,10 @@ class SpotProfile:
         return(I, kxx, kyy)
     
     def interpolated_plot(self, kx=(-80, 80), ky=(-80,80), N=101, method='nearest', 
-                          ax=None, limiting_circle=True, figsize=(8,8)):
+                          ax=None, limiting_circle=True, figsize=(8,8), scan = 0):
         '''Produce an interpolated plot of the data with N points along the
         kx and ky axes. Useful for checking the output of interpolation'''
-        I, kxx, kyy = self.grid_interpolate(kx, ky, N, method=method)
+        I, kxx, kyy = self.grid_interpolate(kx, ky, N, method=method, scan=scan)
         if ax == None:
             f = plt.figure(figsize=figsize)
             ax = f.add_axes([0.15, 0.1, 0.7, 0.9], aspect='equal')
@@ -1082,16 +1112,16 @@ class SpotProfile:
         cP.alpha = cP.alpha - 180
         return(cP)
     
-    def identify_peaks(self, interpolation_method="nearest"):
+    def identify_peaks(self, interpolation_method="nearest", scan = 0):
         """Identifies initial guesses of the diffraction peak locations in the
         data set. By default plots these on an interpolated plot."""
         # TODO: do this, perhaps using 
-        I, kx, ky = self.grid_interpolate((-80, 80), (-80,80), N=101)
+        I, kx, ky = self.grid_interpolate((-80, 80), (-80,80), N=101, scan=scan)
         return(0)
     
-    def find_peaks(self, max_DK=75, plotit=False):
+    def find_peaks(self, max_DK=75, plotit=False, scan=0):
         # Smooth the data so that identification of peaks is easier
-        I, kx, ky = self.grid_interpolate((-80, 80), (-80, 80), N=201, method="linear")
+        I, kx, ky = self.grid_interpolate((-80, 80), (-80, 80), N=201, method="linear", scan=scan)
         I2 = gaussian_filter(I, 3)
         
         if plotit:
@@ -1113,4 +1143,35 @@ class SpotProfile:
             a.plot(kx_points, ky_points, 'o', color='red')
         
         return(kx_points, ky_points)
+    
+    def remove_background(self, data_scan = 0, background_scan = 2):
+        """Assumes one of the scans to be the background signal from a diffusly
+        scattering surface. That background is appropriatly scaled and
+        subtracted from the signal of interest."""
         
+        data = np.copy(self.signal[data_scan])
+        background = np.copy(self.signal[background_scan])
+        scale = data/background
+        scale = np.min(scale)
+        background = background*scale
+        corrected = data - background
+        self.signal[data_scan] = np.copy(corrected)
+    
+    def normalise_solid_angle(self, scan = 0):
+        om_df = pd.read_csv('diffraction_solid_angle.csv', usecols=['z', 'Omega'])
+        omega = np.interp(self.z[:,1], om_df['z'], om_df['Omega'])
+        omega = omega/max(omega)
+        for j in range(len(self.alpha[0,:])):
+            self.signal[scan][:,j] = self.signal[scan][:,j]*omega
+    
+    def normliase_scans(self, data_scan = 0, background_scan = 2):
+        """Within a single set of z scans, use the background scan to
+        calculate an equivalence between them. Uses the first z scan in the 
+        data set as the signal standard."""
+        
+        standard = self.signal[background_scan][:,0]
+        for i in range(len(self.alpha[0,:])):
+            signal = np.copy(self.signal[data_scan][:,i])
+            current_background = self.signal[background_scan][:,i]
+            detection_factor = np.mean(current_background/standard)
+            self.signal[data_scan][:,i] = signal/detection_factor
