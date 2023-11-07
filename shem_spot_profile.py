@@ -371,7 +371,7 @@ def load_z_scans_ashem(files_ind, path_name, z_zero = 3.41e6, multi=True):
     zs, meas, example_pos = load_z_scans(files, z_zero = z_zero, instrument = 'ashem')
     # Load in the data
     # Note the [0][0] needed to extract the data from the Matlab struct
-    n_scan = np.shape(example_pos)[0]
+    n_scan = np.shape(example_pos)[0] if multi else 1
     data = []
     alphas = np.zeros(len(files_ind))
     for i in range(n_scan):
@@ -416,13 +416,17 @@ def load_z_scans_bshem(files_ind, path_name, z_zero=2.5e9, detector = 1):
     zs, meas, example_pos = load_z_scans(files, z_zero = z_zero, instrument = 'bshem')
     # Load in the data
     # Note the [0][0] needed to extract the data from the Matlab scruct
-    data = np.zeros([len(files_ind), len(meas['counts'][0][0])])
+    data = []
+    data.append(np.zeros([len(files_ind), len(meas['counts'][0][0])]))
     for i, f in enumerate(files):
         meas = scipy.io.loadmat(f)['meas']
-        data[i,:] = meas['current_all'][0][0][:,detector].flatten()
+        data[0][i,:] = meas['current_all'][0][0][:,detector].flatten()
+    
+    for i in range(len(data)):
+        data[i] = data[i].transpose()
     
     # B-SHeM uses pm
-    return({'zs' : zs*1e-9, 'I' : data.transpose(), 'example_pos' : example_pos})
+    return({'zs' : zs*1e-9, 'I' : data, 'example_pos' : example_pos})
 
 
 def load_z_scans_bshem_txt(files_ind, path_name, z_zero, detector = 1):
@@ -575,11 +579,13 @@ class SpotProfile:
         if plate != "standard":
             WD = WD_from_plate(plate)
         # TODO: example positions etc. not really being used yet!
+        self.n_alpha = np.shape(alpha_rotator[1])# 
+                    # How many values of alpha are there, need to do things slightly differently for just 1 scan
         self.z = z                        # z position, matrix
         self.theta = theta_of_z(z, plate, WD) # Polar detection angle, matrix
         self.alpha_rotator = alpha_rotator# Rotator stage angle, matrix
         self.alpha = np.array([])         # azimuthal angle orientated with the crystal, matrix
-        self.alpha_step = abs(alpha_rotator[0,0] - alpha_rotator[0, 1]) 
+        self.alpha_step = abs(alpha_rotator[0,0] - alpha_rotator[0, 1]) if self.n_alpha == 1 else None
                     # Step in alpha, this is assumed to be constant across the scan
         self.signal = I                   # Signal levels, matrix
         self.kz = np.array([])            # wavevector z values
@@ -600,14 +606,14 @@ class SpotProfile:
     
     @classmethod
     def import_ashem(cls, file_ind, dpath, alphas=None, T = 298, alpha_zero=0, 
-                     z_zero = 3.41e6):
+                     z_zero = 3.41e6, multi=True):
         '''Loads an experimental spot profile from a series of z scan data
         files.'''
         
         if type(file_ind) == int:
             file_ind = [file_ind]
         # Load the data
-        data = load_z_scans_ashem(file_ind, dpath, z_zero = z_zero)
+        data = load_z_scans_ashem(file_ind, dpath, z_zero = z_zero, multi = multi)
         
         # Number of rows (z values)
         # and columns (alpha values)
@@ -654,7 +660,7 @@ class SpotProfile:
         
         # Number of rows (z values)
         # and columns (alpha values)
-        r, c = data['I'].shape
+        r, c = data['I'][0].shape
         alphas = np.repeat(np.resize(alphas, [1, c]), r, axis=0)
         zs = np.repeat(data['zs'], c, axis=1)
         #alphas = np.repeat(np.resize(alphas, [1, c]), r, axis=0)
@@ -829,11 +835,11 @@ class SpotProfile:
         return((df, chosen_DK))
     
     def line_plot(self, xvar, var, value, figsize=[5, 3.5], logplot=False, ax=None, 
-                  rect=[0.15,0.15,0.7,0.7], **kwargs):
+                  rect=[0.15,0.15,0.7,0.7], scan=0, **kwargs):
         """Produce a plot of one line of the data set, selected for the
         specified value of the specified variable."""
         
-        df, chosen = self.select_by_var(var, value)
+        df, chosen = self.select_by_var(var, value, scan=scan)
         if ax == None:
             f = plt.figure(figsize=figsize)
             ax = f.add_axes(rect)
@@ -850,25 +856,28 @@ class SpotProfile:
         return(f, ax, df, chosen)
      
     def line_plot_raw(self, alpha, figsize=[5, 3.5], logplot=False, ax=None, 
-                      rect=[0.15,0.15,0.7,0.7], **kwargs):
+                      rect=[0.15,0.15,0.7,0.7], scan=0, **kwargs):
         f, ax, df, chosen_alpha =self.line_plot('z', 'alpha', alpha, figsize=figsize, 
-                                                logplot=logplot, ax=ax, rect=rect, **kwargs)
+                                                logplot=logplot, ax=ax, rect=rect, 
+                                                scan=scan, **kwargs)
         ax.set_xlabel('$z/\\mathrm{mm}$')
         ax.set_title('1D plot of a zscan at $\\alpha$={}$^\\circ$'.format(chosen_alpha))
         return(f, ax, df)
     
     def line_plot_diffraction(self, alpha, figsize=[5, 3.5], logplot=False, ax=None, 
-                              rect=[0.15,0.15,0.7,0.7], **kwargs):
+                              rect=[0.15,0.15,0.7,0.7], scan=0, **kwargs):
         f, ax, df, chosen_alpha =self.line_plot('DK', 'alpha', alpha, figsize=figsize, 
-                                                logplot=logplot, ax=ax, rect=rect, **kwargs)
+                                                logplot=logplot, ax=ax, rect=rect, 
+                                                scan=scan, **kwargs)
         ax.set_xlabel('$\\Delta K/\\mathrm{nm}^{-1}$')
         ax.set_title('1D diffraction scan at $\\alpha$={}$^\\circ$'.format(chosen_alpha))
         return(f, ax, df)
     
     def line_plot_theta(self, alpha, figsize=[5, 3.5], logplot=False, ax=None, 
-                        rect=[0.15,0.15,0.7,0.7], **kwargs):
+                        rect=[0.15,0.15,0.7,0.7], scan=0, **kwargs):
         f, ax, df, chosen_alpha =self.line_plot('theta', 'alpha', alpha, figsize=figsize, 
-                                                logplot=logplot, ax=ax, rect=rect, **kwargs)
+                                                logplot=logplot, ax=ax, rect=rect, 
+                                                scan=scan, **kwargs)
         ax.set_xlabel('$\\theta_f/^\\circ$')
         ax.set_title('1D diffraction scan at $\\alpha$={}$^\\circ$'.format(chosen_alpha))
         return(f, ax, df)
@@ -997,7 +1006,12 @@ class SpotProfile:
         else:
             raise ValueError('Unknown colorbar location.')
         # The main plot, mask any nan (e.g. values that have been masked out)
+        print(scan)
+        print(np.shape(sP.signal))
         Z = np.log10(sP.signal[scan]) if logplot else sP.signal[scan]
+        print(np.shape(Z))
+        print(np.shape(sP.alpha))
+        print(np.shape(getattr(sP, var)))
         mesh1 = ax1.pcolormesh(sP.alpha*pi/180, getattr(sP, var), Z, 
                                edgecolors='face', cmap = colourmap, 
                                rasterized=rasterized, **kwargs)
@@ -1162,7 +1176,7 @@ class SpotProfile:
         omega = np.interp(self.z[:,1], om_df['z'], om_df['Omega'])
         omega = omega/max(omega)
         for j in range(len(self.alpha[0,:])):
-            self.signal[scan][:,j] = self.signal[scan][:,j]*omega
+            self.signal[scan][:,j] = self.signal[scan][:,j]/omega
     
     def normliase_scans(self, data_scan = 0, background_scan = 2):
         """Within a single set of z scans, use the background scan to
