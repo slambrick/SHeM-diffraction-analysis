@@ -10,7 +10,6 @@ Created on Sat Oct 15 09:51:59 2022
 
 A module for importing, analysing, and plotting SHeM spot profile data.
 
-The 2D Gaussian function is based on [this StackOverflow post](https://stackoverflow.com/questions/21566379/fitting-a-2d-gaussian-function-using-scipy-optimize-curve-fit-valueerror-and-m).
 
 A model for the Parallel speed ratio is used from [M Bergin 2017](http://doi.org/10.1016/j.ultramic.2019.112833).
 and the data that was used to fit to Bergin's model is from [Toennies & Winkelman](http://doi.org/10.1063/1.434448).
@@ -305,6 +304,7 @@ def load_z_scans(files, z_zero = 3.41e6, instrument = 'ashem'):
         `rotation_angle`, `counts`, `errors`, `finish_time`, `scan_time`
     """
    
+    
     # Import the meas structure
     meas = scipy.io.loadmat(files[0])['meas']
     
@@ -318,6 +318,8 @@ def load_z_scans(files, z_zero = 3.41e6, instrument = 'ashem'):
     else: 
         raise('Unkown instrument input in load_z_scans') 
     n_scan = 1
+    # TODO: n_scan should be determined by the largest number of scans in one file.
+    
     for j, item in enumerate(meas['inputs'][0][0][0]):
         if isinstance(item[0], str):
             if item[0] == 'example_pos':
@@ -368,24 +370,77 @@ def load_z_scans_ashem(files_ind, path_name, z_zero = 3.41e6, multi=True):
     else:
         ashem_fname = np.vectorize(lambda ind, p : '{}/Z{}.mat'.format(p, str(ind).zfill(6)))
     files = ashem_fname(files_ind, path_name)
-    zs, meas, example_pos = load_z_scans(files, z_zero = z_zero, instrument = 'ashem')
+    
+    # Determine the data size, and do some basic checks that the z scans are compartible
+    meas = scipy.io.loadmat(files[0])['meas']
+    zs = meas['z_positions'][0][0].flatten()
+    n_scan_max = 1
+    n_scans = np.zeros(len(files))
+    for i, f in enumerate(files):
+        meas = scipy.io.loadmat(f)['meas']
+        z = meas['z_positions'][0][0].flatten()
+        if np.shape(z) != np.shape(zs):
+            raise Exception("Incompatible z scans, different z lenghts.")
+        if np.sum(z == zs) != len(zs):
+            raise Exception("Incompatible z scans, different z values.")
+        if (type(z_zero)  == float) or (type(z_zero) == int):
+            zs_tmp = (z_zero - z)
+        elif len(z_zero) == 1:
+            zs_tmp = (z_zero[0] - z)
+        elif len(z_zero) == len(files):
+            zs_tmp = (z_zero[i] - z)
+        else:
+            raise Exception("z_zero length not 1 or number of files")
+        for j, item in enumerate(meas['inputs'][0][0][0]):
+            if isinstance(item[0], str):
+                if item[0] == 'example_pos':
+                    example_pos = meas['inputs'][0][0][0][j+1][0]
+                    n_scans[i] = 1
+                elif item[0] == 'example_pos_norm_1':
+                    example_pos_norm_1 = meas['inputs'][0][0][0][j+1][0]
+                    n_scan_max = 2
+                    n_scans[i] = 2
+                elif item[0] == 'example_pos_norm_2':
+                    example_pos_norm_2 = meas['inputs'][0][0][0][j+1][0]
+                    n_scan_max = 3
+                    n_scans[i] = 3
+    if n_scan_max == 2:
+        example_pos = np.array([example_pos, example_pos_norm_1])
+    elif n_scan_max == 3:
+        example_pos = np.array([example_pos, example_pos_norm_1, example_pos_norm_2])
+    
     # Load in the data
     # Note the [0][0] needed to extract the data from the Matlab struct
-    n_scan = np.shape(example_pos)[0] if multi else 1
+    #n_scan = np.shape(example_pos)[0] if multi else 1
     data = []
     alphas = np.zeros(len(files_ind))
-    for i in range(n_scan):
-        data.append(np.zeros([len(files_ind), len(zs)]))
+    for i in range(n_scan_max):
+        data.append(np.ones([len(files_ind), len(zs)])*np.nan)
+    zs_all = np.ones([len(files_ind), len(zs)])
     for i, f in enumerate(files):
         meas = scipy.io.loadmat(f)['meas']
         alphas[i] = round(meas['rotation_angle'][0][0][0][0]*1e-6, 3)
-        for j in range(n_scan):
+        if (type(z_zero)  == float) or (type(z_zero) == int):                                                                               # keep the old 'using one z_zero' function
+            zs_all[i,:]=((z_zero - meas['z_positions'][0][0].flatten())*1e-6)
+        elif len(z_zero) == 1:
+            zs_all[i,:]=((z_zero[0] - meas['z_positions'][0][0].flatten())*1e-6)
+        else:
+            # Different z_zero for different scans
+            zs_all[i,:]=((z_zero[i] - meas['z_positions'][0][0].flatten())*1e-6)
+        for j in range(int(n_scans[i])):
             data[j][i,:] = meas['counts'][0][0][:,j].flatten()*1e9 # Convert to nA from A
-    for i in range(n_scan):
+    for i in range(n_scan_max):
         data[i] = data[i].transpose() # Why!!?
     
+    # TODO: sort the columns of data by alpha so that they can be imported in any order.
+    #ind = np.argsort(alphas)
+    #alphas = alphas[ind]
+    #for i in range(len(data)):
+    #    # Something like this.....
+    #    data[i][:,:] = data[i][:,ind]
+    
     # A-SHeM uses nm
-    return({'zs' : zs*1e-6, 'I' : data, 'example_pos' : example_pos, 'alphas' : alphas})
+    return({'zs' : zs_all.transpose(), 'I' : data, 'example_pos' : example_pos, 'alphas' : alphas})
 
 
 # TODO: enable for multiple scans
@@ -585,7 +640,8 @@ class SpotProfile:
         self.theta = theta_of_z(z, plate, WD) # Polar detection angle, matrix
         self.alpha_rotator = alpha_rotator# Rotator stage angle, matrix
         self.alpha = np.array([])         # azimuthal angle orientated with the crystal, matrix
-        self.alpha_step = abs(alpha_rotator[0,0] - alpha_rotator[0, 1]) if self.n_alpha == 1 else None
+        #print(self.n_alpha)
+        self.alpha_step = abs(alpha_rotator[0,0] - alpha_rotator[0, 1]) if self.n_alpha[0] != 1 else None
                     # Step in alpha, this is assumed to be constant across the scan
         self.signal = I                   # Signal levels, matrix
         self.kz = np.array([])            # wavevector z values
@@ -606,7 +662,7 @@ class SpotProfile:
     
     @classmethod
     def import_ashem(cls, file_ind, dpath, alphas=None, T = 298, alpha_zero=0, 
-                     z_zero = 3.41e6, multi=True):
+                     z_zero = 3.41e6, multi=True, assign_alphas=False):
         '''Loads an experimental spot profile from a series of z scan data
         files.'''
         
@@ -620,9 +676,9 @@ class SpotProfile:
         n_scan = len(data['I'])
         r, c = data['I'][0].shape
         alphas = np.repeat(np.resize(data['alphas'], [1, c]), r, axis=0)
-        zs = np.repeat(data['zs'], c, axis=1)
+        #zs = np.repeat(data['zs'], c, axis=1)
         #alphas = np.repeat(np.resize(alphas, [1, c]), r, axis=0)
-        sP = cls(z = zs, alpha_rotator = alphas, I = data['I'], plate = "C06", n_scan = n_scan)
+        sP = cls(z = data['zs'], alpha_rotator = alphas, I = data['I'], plate = "C06", n_scan = n_scan)
         
         # The example image the spot was defined from was at 300deg
         sP.T = T
@@ -805,6 +861,9 @@ class SpotProfile:
                 alpha2 = np.concatenate([alpha2, alpha1 + i*(symmetry)], 1)
                 z2 = np.concatenate([z2, z1], 1)
                 I2 = np.concatenate([I2, I1], 1)
+        
+        # Need to make I2 the right shape
+        I2 = np.reshape(I2, (1,) +  np.shape(I2))
         wrapped = SpotProfile(z2, alpha2, I2, plate=self.plate, incident_angle=self.incident_angle)
         wrapped.T = self.T
         wrapped.set_alpha_zero(self.alpha_zero)
@@ -970,7 +1029,7 @@ class SpotProfile:
         
         fig, ax1 = plt.subplots()
         fig.set_size_inches(figsize[0], figsize[1])
-        Z = np.log10(self.signal[scan])
+        Z = np.log10(self.signal[scan])        
         mesh1 = ax1.pcolormesh(self.alpha, getattr(self, var), Z,
                                edgecolors='face', cmap = colourmap, rasterized=rasterized)
         ax1.set_xlabel('$\\alpha/^\\circ$')
@@ -1006,12 +1065,7 @@ class SpotProfile:
         else:
             raise ValueError('Unknown colorbar location.')
         # The main plot, mask any nan (e.g. values that have been masked out)
-        print(scan)
-        print(np.shape(sP.signal))
         Z = np.log10(sP.signal[scan]) if logplot else sP.signal[scan]
-        print(np.shape(Z))
-        print(np.shape(sP.alpha))
-        print(np.shape(getattr(sP, var)))
         mesh1 = ax1.pcolormesh(sP.alpha*pi/180, getattr(sP, var), Z, 
                                edgecolors='face', cmap = colourmap, 
                                rasterized=rasterized, **kwargs)
