@@ -53,6 +53,10 @@ def WD_from_plate(plate):
         WD = 2
     elif plate == "Z07":
         WD = 3
+    elif plate == "#Y02 D1":
+        WD = 4
+    elif plate == "#Y02 D2":
+        "a number" # TODO: this
     else:
         raise ValueError("Unknown pinhole plate.")
     return(WD)
@@ -270,7 +274,7 @@ def theta_of_z(z, plate="C06", WD=2):
         L = 6*np.tan(30*pi/180)
         return(np.arctan((L - z*np.tan(30*pi/180))/z)*180/pi) #TOOD
     elif plate == "Y02 D1":
-        return(np.arctan((8/3)*sqrt(3)/z) - sqrt(3)/3)
+        return(np.arctan((8/3)*sqrt(3)/z - sqrt(3)/3)*180/pi)
     elif plate == "Y02 D2":
         # TODO
         "complete later"
@@ -715,7 +719,7 @@ class SpotProfile:
     
     
     @classmethod
-    def import_bshem(cls, file_ind, dpath, alphas, T=298, alpha_zero=0, z_zero = 2.5e9, detector=1, plate="Z07"):
+    def import_bshem(cls, file_ind, dpath, alphas, T=298, alpha_zero=0, z_zero = 2.5e9, detector=1, plate="#Y02 D1"):
         # Load the data
         data = load_z_scans_bshem(file_ind, dpath, z_zero = z_zero, detector = detector)
         
