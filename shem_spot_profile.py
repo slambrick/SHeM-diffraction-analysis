@@ -269,6 +269,11 @@ def theta_of_z(z, plate="C06", WD=2):
     elif plate == "Z07":
         L = 6*np.tan(30*pi/180)
         return(np.arctan((L - z*np.tan(30*pi/180))/z)*180/pi) #TOOD
+    elif plate == "Y02 D1":
+        return(np.arctan((8/3)*sqrt(3)/z) - sqrt(3)/3)
+    elif plate == "Y02 D2":
+        # TODO
+        "complete later"
     else:
         raise ValueError('Unkwon pinhole plate, known: "C06", "Z07", "standard')
 
@@ -710,7 +715,7 @@ class SpotProfile:
     
     
     @classmethod
-    def import_bshem(cls, file_ind, dpath, alphas, T=298, alpha_zero=0, z_zero = 2.5e9, detector=1):
+    def import_bshem(cls, file_ind, dpath, alphas, T=298, alpha_zero=0, z_zero = 2.5e9, detector=1, plate="Z07"):
         # Load the data
         data = load_z_scans_bshem(file_ind, dpath, z_zero = z_zero, detector = detector)
         
@@ -720,7 +725,7 @@ class SpotProfile:
         alphas = np.repeat(np.resize(alphas, [1, c]), r, axis=0)
         zs = np.repeat(data['zs'], c, axis=1)
         #alphas = np.repeat(np.resize(alphas, [1, c]), r, axis=0)
-        sP = cls(z = zs, alpha_rotator = alphas, I = data['I'], plate="Z07")
+        sP = cls(z = zs, alpha_rotator = alphas, I = data['I'], plate=plate)
         
         # The example image the spot was defined from was at 300deg
         sP.T = T
@@ -812,21 +817,21 @@ class SpotProfile:
         df.drop(var, axis=1, inplace=True)
         return((df, chosen))
     
-    def wrap_around(self, symmetry, crop = "end", scan = 0, mirror=False):
+    def wrap_around(self, symmetry, crop = "end", scan = 0):
         """Wraps a data set around the full 360deg, i.e. to make a 360deg plot
         of an incomplete data set, e.g. a 90deg data set. Returns the data
         as a new object.
         Be aware that this method assumes that the step size in alpha is a
         factor of the symmetry factor, e.g. 1, 1.25, 2.5, 5, 7.5, 10deg 
         """
-        
+        # TODO: this
         alpha_range = self.get_alpha_range()
         if (alpha_range < 60 and symmetry == 60) or (alpha_range < 90 and symmetry == 90):
             raise Exception("I don't think you have enough data to do this.")
         elif symmetry != 60 and symmetry != 90:
             warnings.warn("Untested symmetry, results unpredictable")
         
-        # select the appropriate amount of the data
+        # TODO: enable arbitrary cropping
         if crop == "end":
             crop = np.shape(self.alpha)[1] - int(symmetry/self.alpha_step) - 1
             ind = self.alpha_rotator <= symmetry
@@ -848,34 +853,19 @@ class SpotProfile:
         I1 = self.signal[scan][:,crop:stop_crop]
         n_rep = np.ceil(360/symmetry)
         
-        n_rep = 2
-        
-        if mirror:
-            # This is for 120deg symmetry when we are using 60deg of data, which 
-            # means some of it must be mirrored
-            z2 = np.concatenate([z1, np.flip(z1[:,:-1])], 1)
-            I2 = np.concatenate([I1, np.flip(I1[:,:-1])], 1)
-            z2 = z2[:,:-1]
-            I2 = I2[:,:-1]
-            alpha2 = np.concatenate([alpha1[:,:-1], alpha1[:,:-1] + symmetry], 1)
-            n_rep = n_rep/2
-            symmetry = symmetry*2
-        else:  
-            alpha2 = alpha1[:,:-1]
-            z2 = z1[:,:-1]
-            I2 = I1[:,:-1]
-        
-        
-       # for i in range(1, int(n_rep)):
-       #     if i < 10 + max(range(1, int(n_rep))):
-       #         # Miss the first element on all but the last step
-       #         alpha2 = np.concatenate([alpha2, alpha2 + i*(symmetry)], 1)
-       #         z2 = np.concatenate([z2, z1[:,:-1]], 1)
-       #         I2 = np.concatenate([I2, I1[:,:-1]], 1)
-       #     else:
-       #         alpha2 = np.concatenate([alpha2, alpha2 + i*(symmetry)], 1)
-       #         z2 = np.concatenate([z2, z1], 1)
-       #         I2 = np.concatenate([I2, I1], 1)
+        alpha2 = alpha1[:,:-1]
+        z2 = z1[:,:-1]
+        I2 = I1[:,:-1]
+        for i in range(1, int(n_rep)):
+            if i < 10 + max(range(1, int(n_rep))):
+                # Miss the first element on all but the last step
+                alpha2 = np.concatenate([alpha2, alpha1[:,:-1] + i*(symmetry)], 1)
+                z2 = np.concatenate([z2, z1[:,:-1]], 1)
+                I2 = np.concatenate([I2, I1[:,:-1]], 1)
+            else:
+                alpha2 = np.concatenate([alpha2, alpha1 + i*(symmetry)], 1)
+                z2 = np.concatenate([z2, z1], 1)
+                I2 = np.concatenate([I2, I1], 1)
         
         # Need to make I2 the right shape
         I2 = np.reshape(I2, (1,) +  np.shape(I2))
@@ -1253,6 +1243,7 @@ class SpotProfile:
         data set as the signal standard."""
         
         standard = self.signal[background_scan][:,0]
+        print('Normalising against alpha = {}'.format(self.alpha[0,0]))
         for i in range(len(self.alpha[0,:])):
             signal = np.copy(self.signal[data_scan][:,i])
             current_background = self.signal[background_scan][:,i]
