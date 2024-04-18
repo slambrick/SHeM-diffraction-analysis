@@ -1054,10 +1054,10 @@ class SpotProfile:
         if var == 'DK':
             # If we plot data with -DK we invert it
             if DK_invert:
-                sP = self.filter_by_var('z', 2, 'above')
+                sP = self.filter_by_var('DK', 0, 'below')
                 sP.DK = -sP.DK
             else:
-                sP = self.filter_by_var('z', 2, 'below')
+                sP = self.filter_by_var('DK', 0, 'above')
         else:
             sP = self
         fig = plt.figure(figsize=figsize)
