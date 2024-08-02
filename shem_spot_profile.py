@@ -10,6 +10,7 @@ Created on Sat Oct 15 09:51:59 2022
 
 A module for importing, analysing, and plotting SHeM spot profile data.
 
+The 2D Gaussian function is based on [this StackOverflow post](https://stackoverflow.com/questions/21566379/fitting-a-2d-gaussian-function-using-scipy-optimize-curve-fit-valueerror-and-m).
 
 A model for the Parallel speed ratio is used from [M Bergin 2017](http://doi.org/10.1016/j.ultramic.2019.112833).
 and the data that was used to fit to Bergin's model is from [Toennies & Winkelman](http://doi.org/10.1063/1.434448).
@@ -312,7 +313,6 @@ def load_z_scans(files, z_zero = 3.41e6, instrument = 'ashem'):
         `det_params`, `p1`, `p2`, `p3`, `p_srce`, `p_diff`, `p_smpl`, `p_det`, `pause`
         `rotation_angle`, `counts`, `errors`, `finish_time`, `scan_time`
     """
-   
     
     # Import the meas structure
     meas = scipy.io.loadmat(files[0])['meas']
@@ -649,7 +649,6 @@ class SpotProfile:
         self.theta = theta_of_z(z, plate, WD) # Polar detection angle, matrix
         self.alpha_rotator = alpha_rotator# Rotator stage angle, matrix
         self.alpha = np.array([])         # azimuthal angle orientated with the crystal, matrix
-        #print(self.n_alpha)
         self.alpha_step = abs(alpha_rotator[0,0] - alpha_rotator[0, 1]) if self.n_alpha[0] != 1 else None
                     # Step in alpha, this is assumed to be constant across the scan
         self.signal = I                   # Signal levels, matrix
@@ -684,9 +683,12 @@ class SpotProfile:
         # and columns (alpha values)
         n_scan = len(data['I'])
         r, c = data['I'][0].shape
-        alphas = np.repeat(np.resize(data['alphas'], [1, c]), r, axis=0)
-        #zs = np.repeat(data['zs'], c, axis=1)
-        #alphas = np.repeat(np.resize(alphas, [1, c]), r, axis=0)
+        
+        if assign_alphas:
+            alphas = np.repeat(np.resize(alphas, [1, c]), r, axis=0)                                               #use manual alpha inputs
+        else:
+            alphas = np.repeat(np.resize(data['alphas'], [1, c]), r, axis=0)
+        
         sP = cls(z = data['zs'], alpha_rotator = alphas, I = data['I'], plate = "C06", n_scan = n_scan)
         
         # The example image the spot was defined from was at 300deg
@@ -1038,7 +1040,7 @@ class SpotProfile:
         
         fig, ax1 = plt.subplots()
         fig.set_size_inches(figsize[0], figsize[1])
-        Z = np.log10(self.signal[scan])        
+        Z = np.log10(self.signal[scan])
         mesh1 = ax1.pcolormesh(self.alpha, getattr(self, var), Z,
                                edgecolors='face', cmap = colourmap, rasterized=rasterized)
         ax1.set_xlabel('$\\alpha/^\\circ$')
@@ -1136,7 +1138,10 @@ class SpotProfile:
         kx = np.linspace(kx[0], kx[1], N)
         ky = np.linspace(ky[0], ky[1], N)
         kxx, kyy = np.meshgrid(kx, ky)
-        z = self.signal[scan].ravel()
+
+        sP = self.filter_by_var('z', 2, 'above')
+        
+        z = sP.signal[scan].ravel()
         ind = ~np.isnan(z)
         x=self.kx.ravel()              #Flat input into 1d vector
         x=x[ind]   #eliminate any NaN
@@ -1147,7 +1152,8 @@ class SpotProfile:
         return(I, kxx, kyy)
     
     def interpolated_plot(self, kx=(-80, 80), ky=(-80,80), N=101, method='nearest', 
-                          ax=None, limiting_circle=True, figsize=(8,8), scan = 0):
+                          ax=None, limiting_circle=True, figsize=(8,8), scan = 0,
+                          **kwargs):
         '''Produce an interpolated plot of the data with N points along the
         kx and ky axes. Useful for checking the output of interpolation'''
         I, kxx, kyy = self.grid_interpolate(kx, ky, N, method=method, scan=scan)
@@ -1158,7 +1164,7 @@ class SpotProfile:
             f = ax.get_figure()
         if limiting_circle:
             patch = patches.Circle((0, 0), radius = max(kx), transform = ax.transData)
-        im = ax.pcolormesh(kxx, kyy, np.log10(I), edgecolors='face', rasterized=True)
+        im = ax.pcolormesh(kxx, kyy, np.log10(I), edgecolors='face', rasterized=True, **kwargs)
         if limiting_circle:
             im.set_clip_path(patch)
         #ax.axis('equal')
