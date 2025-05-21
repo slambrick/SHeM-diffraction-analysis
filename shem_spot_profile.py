@@ -135,7 +135,7 @@ def morse_V(z, x, y, params=(8.03, 1.35, 1.08, 0.102, 4)):
     """Calculates a corrugated Morse potential, from eq. 1.2 & 1.3 [Celli et al.
     1995](https://doi.org/10.1063/1.449297).
     
-    $$ Q(x,y) = h \\left( \cos \dfrac{2\pi x}{a} + \cos \dfrac{2\pi y}{a} \\right)$$
+    $$ Q(x,y) = h \\left( \\cos \\dfrac{2\\pi x}{a} + \\cos \\dfrac{2\\pi y}{a} \\right)$$
     $$ V(x, y, z) = D_0 e^{-2 \\alpha [z - Q(x, y)]} - 2 D_0 e^{-\\alpha_1 z} $$
 
     Parameters
@@ -165,9 +165,9 @@ def twoD_Gaussian(xy, amplitude, xo, yo, sigma_x, sigma_y, theta, f, g, h, k, l,
     """A two dimensional gaussian function for fitting to diffraction peaks.
     The background is defined in the `background` function.
 
-    $$ a = \dfrac{\cos^2 \\theta}{2 \sigma_x^2} + \dfrac{\sin^2 \\theta}{2\sigma_y^2}$$
-    $$ b = -\dfrac{\sin 2 \\theta}{4\sigma_x^2} + \dfrac{\sin 2 \\theta}{4\sigma_y^2}$$
-    $$ c =  \dfrac{\sin^2 \\theta}{2 \sigma_x^2} + \dfrac{\cos^2 \\theta}{2\sigma_y^2}$$
+    $$ a = \\dfrac{\\cos^2 \\theta}{2 \\sigma_x^2} + \\dfrac{\\sin^2 \\theta}{2\\sigma_y^2}$$
+    $$ b = -\\dfrac{\\sin 2 \\theta}{4\\sigma_x^2} + \\dfrac{\\sin 2 \\theta}{4\\sigma_y^2}$$
+    $$ c =  \\dfrac{\\sin^2 \\theta}{2 \\sigma_x^2} + \\dfrac{\\cos^2 \\theta}{2\\sigma_y^2}$$
     $$ I(x, y) = B + A e^{-a(x - x_0)^2 - 2b(x-x_0)(y-y_0) - c(y - y_0)^2}$$
     
     Parameters
@@ -539,9 +539,9 @@ def find_diff_peak(data, kx, ky, plotit=False, saveit=False, i=np.nan, interpola
     data : SpotProfile
         A `SpotProfile` object contatining the diffraction data.
     kx : float
-        Initial guess of the location of the peak along the k<sub>x<\sub> axis.
+        Initial guess of the location of the peak along the k<sub>x<\\sub> axis.
     ky : float
-        Initial guess of the location of the peak along the k<sub>y<\sub> axis.
+        Initial guess of the location of the peak along the k<sub>y<\\sub> axis.
     plotit : bool, optional
         Should the fit be plotted. The default is False.
     saveit : bool, optional
@@ -593,24 +593,24 @@ def find_diff_peak(data, kx, ky, plotit=False, saveit=False, i=np.nan, interpola
         Gau = twoD_Gaussian((kxx, kyy), popt[0], popt[1], popt[2], popt[3], popt[4], popt[5], 0, 0, 0, 0, 0, 0)
         axs[1,0].pcolormesh(kxx, kyy, Gau.reshape(101, 101), edgecolors='face')
         axs[1,0].axis('equal')
-        axs[1,0].set_xlabel('$k_x/\mathrm{nm}^{-1}$')
-        axs[1,0].set_ylabel('$k_y/\mathrm{nm}^{-1}$')
+        axs[1,0].set_xlabel('$k_x/\\mathrm{nm}^{-1}$')
+        axs[1,0].set_ylabel('$k_y/\\mathrm{nm}^{-1}$')
         axs[1,0].set_title('Fitted Gaussian')
 
         # Plot the background (does it look decent at all?)
         Back = background((kxx, kyy), popt[6], popt[7], popt[8], popt[9], popt[10], popt[11])
         axs[1,1].pcolormesh(kxx, kyy, Back.reshape(101, 101), edgecolors='face')
         axs[1,1].axis('equal')
-        axs[1,1].set_xlabel('$k_x/\mathrm{nm}^{-1}$')
-        axs[1,1].set_ylabel('$k_y/\mathrm{nm}^{-1}$')
+        axs[1,1].set_xlabel('$k_x/\\mathrm{nm}^{-1}$')
+        axs[1,1].set_ylabel('$k_y/\\mathrm{nm}^{-1}$')
         axs[1,1].set_title('Fitted Polynomial Background')
 
         # Plot the background (does it look decent at all?)
         GauTot = twoD_Gaussian((kxx, kyy), *popt)
         axs[0,1].pcolormesh(kxx, kyy, GauTot.reshape(101, 101), edgecolors='face')
         axs[0,1].axis('equal')
-        axs[0,1].set_xlabel('$k_x/\mathrm{nm}^{-1}$')
-        axs[0,1].set_ylabel('$k_y/\mathrm{nm}^{-1}$')
+        axs[0,1].set_xlabel('$k_x/\\mathrm{nm}^{-1}$')
+        axs[0,1].set_ylabel('$k_y/\\mathrm{nm}^{-1}$')
         axs[0,1].set_title('Total fit')
         if saveit:
             plt.savefig('all_fits/peak_fitted{:03d}.png'.format(i))
@@ -1103,7 +1103,7 @@ class SpotProfile:
         ax1.set_yticks([0, 25, 50, 75])
         ax1.set_ylim(0, DK_max)
         ax1.tick_params(axis='y', colors=[0.9,0.9,0.9])
-        add_scale(ax1, label = '$\Delta K/\\mathrm{nm}^{-1}$', x_offset = x_offset)
+        add_scale(ax1, label = '$\\Delta K/\\mathrm{nm}^{-1}$', x_offset = x_offset)
         return(fig, ax1, ax2)
     
     def shem_raw_plot(self, colourmap = cm.viridis,  bar_location='right',
@@ -1168,8 +1168,8 @@ class SpotProfile:
         if limiting_circle:
             im.set_clip_path(patch)
         #ax.axis('equal')
-        ax.set_xlabel('$k_x/\mathrm{nm}^{-1}$')
-        ax.set_ylabel('$k_y/\mathrm{nm}^{-1}$')
+        ax.set_xlabel('$k_x/\\mathrm{nm}^{-1}$')
+        ax.set_ylabel('$k_y/\\mathrm{nm}^{-1}$')
         ax.set_title('Interpolated k-plot, method = '+ method)
         return(f, ax, im)
     
